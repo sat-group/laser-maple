@@ -95,6 +95,8 @@ int main(int argc, char** argv)
         IntOption    cpu_lim("MAIN", "cpu-lim","Limit on CPU time allowed in seconds.\n", INT32_MAX, IntRange(0, INT32_MAX));
         IntOption    mem_lim("MAIN", "mem-lim","Limit on memory usage in megabytes.\n", INT32_MAX, IntRange(0, INT32_MAX));
 
+        StringOption decision_vars ("MAIN", "decision-vars", "Only branch on the listed vars (one-based).");
+
         // LASER options:
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file.\n");
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
@@ -203,6 +205,9 @@ int main(int argc, char** argv)
             }
             fclose(assertion_file);
         }
+
+        S.setDecisionVarsList(decision_vars);
+
         for( int i = 0; i < dummy.size(); i++) {
             printf("%s%d\n", sign(dummy[i]) ? "-" : "", var(dummy[i]));
         }

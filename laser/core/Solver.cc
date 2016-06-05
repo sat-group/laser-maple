@@ -157,7 +157,8 @@ Var Solver::newVar(bool sign, bool dvar)
     activity .push(rnd_init_act ? drand(random_seed) * 0.00001 : 0);
     seen     .push(0);
     polarity .push(sign);
-    decision .push();
+    if(!set_decision_vars)
+    	decision .push();
     trail    .capacity(v+1);
     lbd_seen.push(0);
     picked.push(0);

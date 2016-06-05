@@ -175,6 +175,26 @@ public:
         lsr_num = flag;
     }
 
+    void setDecisionVarsList(StringOption decision_vars){
+		if (decision_vars) {
+			decision.growTo(nVars(), 0);
+			set_decision_vars = true;
+			const char* file_name = decision_vars;
+			FILE* decision_vars_file = fopen (file_name, "r");
+			if (decision_vars_file == NULL)
+				printf("ERROR! Could not open decision vars file: %s\n", file_name), exit(1);
+			int i = 0;
+			while (fscanf(decision_vars_file, "%d", &i) == 1) {
+				Var v = abs(i) - 1;
+				decision[v] = 1;
+			}
+			fclose(decision_vars_file);
+		}
+		else
+			set_decision_vars = false;
+    }
+
+
 protected:
 
     // LASER misc:
@@ -252,6 +272,7 @@ protected:
     vec<lbool>          assigns;          // The current assignments.
     vec<char>           polarity;         // The preferred polarity of each variable.
     vec<char>           decision;         // Declares if a variable is eligible for selection in the decision heuristic.
+    bool 				set_decision_vars;
     vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
     vec<VarData>        vardata;          // Stores reason and level for each variable.
