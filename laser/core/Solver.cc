@@ -482,7 +482,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
 
 void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
 {
-
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
   vec<Lit> workpool; clause.copyTo(workpool);

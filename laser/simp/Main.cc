@@ -98,7 +98,7 @@ int main(int argc, char** argv)
         StringOption decision_vars ("MAIN", "decision-vars", "Only branch on the listed vars (one-based).");
 
         // LASER options:
-        StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file.\n");
+        StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (Zero-based (I think)).\n");
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
 
         parseOptions(argc, argv, true);
@@ -151,6 +151,10 @@ int main(int argc, char** argv)
         S.setDecisionVarsList(decision_vars);
 
         parse_DIMACS(in, S);
+        if(S.nVars() == 0 && S.nClauses() == 0){ // EDXXX
+        	printf("TRIVIAL\n");
+        	exit(0);
+        }
         gzclose(in);
         FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
 
@@ -166,6 +170,8 @@ int main(int argc, char** argv)
         // voluntarily:
         signal(SIGINT, SIGINT_interrupt);
         signal(SIGXCPU,SIGINT_interrupt);
+
+
 
         S.eliminate(true);
         double simplified_time = cpuTime();

@@ -460,7 +460,6 @@ inline void     Solver::setDecisionVar(Var v, bool b)
 { 
     if      ( b && !decision[v]) dec_vars++;
     else if (!b &&  decision[v]) dec_vars--;
-
     decision[v] = b;
     insertVarOrder(v);
 }
