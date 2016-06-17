@@ -176,6 +176,7 @@ Var Solver::newVar(bool sign, bool dvar)
 #endif
     total_actual_rewards.push(0);
     total_actual_count.push(0);
+    if(set_decision_vars) dvar = decision[v] ? true : false; // EDXXX could probably be done better...
     setDecisionVar(v, dvar);
     return v;
 }
@@ -309,6 +310,7 @@ Lit Solver::pickBranchLit()
             rnd_decisions++; }
 
     // Activity based decision:
+
     while (next == var_Undef || value(next) != l_Undef || !decision[next])
         if (order_heap.empty()){
             next = var_Undef;
@@ -330,7 +332,12 @@ Lit Solver::pickBranchLit()
 #endif
             next = order_heap.removeMin();
         }
-
+    /*for(int i = 0; i < decision.size(); i++){
+    				printf("%d ", decision[i]);
+    			}
+    			printf("\n");
+	printf("hit %d %d \n", next, decision[next]);
+	*/
     return next == var_Undef ? lit_Undef : mkLit(next, rnd_pol ? drand(random_seed) < 0.5 : polarity[next]);
 }
 

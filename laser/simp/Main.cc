@@ -84,7 +84,7 @@ int main(int argc, char** argv)
 #if defined(__linux__)
         fpu_control_t oldcw, newcw;
         _FPU_GETCW(oldcw); newcw = (oldcw & ~_FPU_EXTENDED) | _FPU_DOUBLE; _FPU_SETCW(newcw);
-        printf("WARNING: for repeatability, setting FPU to use double precision\n");
+        //printf("WARNING: for repeatability, setting FPU to use double precision\n");
 #endif
         // Extra options:
         //
@@ -148,6 +148,8 @@ int main(int argc, char** argv)
             printf("============================[ Problem Statistics ]=============================\n");
             printf("|                                                                             |\n"); }
         
+        S.setDecisionVarsList(decision_vars);
+
         parse_DIMACS(in, S);
         gzclose(in);
         FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
@@ -206,7 +208,7 @@ int main(int argc, char** argv)
             fclose(assertion_file);
         }
 
-        S.setDecisionVarsList(decision_vars);
+
 
         for( int i = 0; i < dummy.size(); i++) {
             printf("%s%d\n", sign(dummy[i]) ? "-" : "", var(dummy[i]));

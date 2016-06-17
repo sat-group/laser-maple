@@ -177,7 +177,8 @@ public:
 
     void setDecisionVarsList(StringOption decision_vars){
 		if (decision_vars) {
-			decision.growTo(nVars(), 0);
+
+			//decision.growTo(nVars(), 0);
 			set_decision_vars = true;
 			const char* file_name = decision_vars;
 			FILE* decision_vars_file = fopen (file_name, "r");
@@ -185,13 +186,23 @@ public:
 				printf("ERROR! Could not open decision vars file: %s\n", file_name), exit(1);
 			int i = 0;
 			while (fscanf(decision_vars_file, "%d", &i) == 1) {
-				Var v = abs(i) - 1;
+				Var v = i - 1;
+				decision.growTo(i, 0);
 				decision[v] = 1;
 			}
 			fclose(decision_vars_file);
+			/*for(i = 0; i < decision.size(); i++){
+				printf("%d ", decision[i]);
+			}
+			printf("\n");*/
 		}
 		else
 			set_decision_vars = false;
+    }
+
+    //EDXXX chicken and egg...
+    void growDecision(int v){
+    	decision.growTo(v, 0);
     }
 
 
