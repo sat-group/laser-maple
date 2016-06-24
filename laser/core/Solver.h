@@ -186,9 +186,9 @@ public:
 				printf("ERROR! Could not open decision vars file: %s\n", file_name), exit(1);
 			int i = 0;
 			while (fscanf(decision_vars_file, "%d", &i) == 1) {
-				Var v = i - 1;
-				decision.growTo(i, 0);
-				decision[v] = 1;
+				//now zero based..
+				decision.growTo(i + 1, 0);
+				decision[i] = 1;
 			}
 			fclose(decision_vars_file);
 			/*for(i = 0; i < decision.size(); i++){

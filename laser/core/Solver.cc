@@ -47,6 +47,7 @@ static DoubleOption  opt_random_seed       (_cat, "rnd-seed",    "Used by the ra
 static IntOption     opt_ccmin_mode        (_cat, "ccmin-mode",  "Controls conflict clause minimization (0=none, 1=basic, 2=deep)", 2, IntRange(0, 2));
 static IntOption     opt_phase_saving      (_cat, "phase-saving", "Controls the level of phase saving (0=none, 1=limited, 2=full)", 2, IntRange(0, 2));
 static BoolOption    opt_rnd_init_act      (_cat, "rnd-init",    "Randomize the initial activity", false);
+static BoolOption    opt_rnd_pol     (_cat, "rnd-pol",    "Randomize the polarity selection", false);
 static BoolOption    opt_luby_restart      (_cat, "luby",        "Use the Luby restart sequence", true);
 static IntOption     opt_restart_first     (_cat, "rfirst",      "The base restart interval", 100, IntRange(1, INT32_MAX));
 static DoubleOption  opt_restart_inc       (_cat, "rinc",        "Restart interval increase factor", 2, DoubleRange(1, false, HUGE_VAL, false));
@@ -81,7 +82,7 @@ Solver::Solver() :
   , luby_restart     (opt_luby_restart)
   , ccmin_mode       (opt_ccmin_mode)
   , phase_saving     (opt_phase_saving)
-  , rnd_pol          (false)
+  , rnd_pol          (opt_rnd_pol)
   , rnd_init_act     (opt_rnd_init_act)
   , garbage_frac     (opt_garbage_frac)
   , restart_first    (opt_restart_first)
@@ -286,6 +287,7 @@ void Solver::cancelUntil(int level) {
             canceled[x] = conflicts;
 #endif
             assigns [x] = l_Undef;
+
             if (phase_saving > 1 || (phase_saving == 1) && c > trail_lim.last())
                 polarity[x] = sign(trail[c]);
             insertVarOrder(x); }
@@ -338,6 +340,7 @@ Lit Solver::pickBranchLit()
     			printf("\n");
 	printf("hit %d %d \n", next, decision[next]);
 	*/
+    //printf("%d\n", next);
     return next == var_Undef ? lit_Undef : mkLit(next, rnd_pol ? drand(random_seed) < 0.5 : polarity[next]);
 }
 
@@ -1031,7 +1034,26 @@ lbool Solver::search(int nof_conflicts)
                 next = pickBranchLit();
 
                 if (next == lit_Undef){
-
+                	if(set_decision_vars){
+                		bool actually_failed = false;
+                		if(trail.size() != nVars()){
+                			printf("Failed %d %d\n", trail.size(), nVars());
+                			for(int i = 0; i < nVars(); i++){
+								if(assigns[i] == l_Undef){
+									//printf("%d \n", i);
+									vec<Watcher>& pos = watches[mkLit(i, true)];
+									vec<Watcher>& neg = watches[mkLit(i, false)];
+									//printf("w size : %d %d\n", pos.size(), neg.size());
+									if(pos.size() != 0 || neg.size() != 0)
+										actually_failed = true;
+								}
+							}
+                			if(actually_failed){
+								cancelUntil(0);
+								return l_Undef;
+                			}
+                		}
+                	}
                     vec<Lit> clause;
                     for (int i = 0; i < nVars(); i++)
                       clause.push(mkLit(i,false));
