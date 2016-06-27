@@ -1037,7 +1037,8 @@ lbool Solver::search(int nof_conflicts)
                 	if(set_decision_vars){
                 		bool actually_failed = false;
                 		if(trail.size() != nVars()){
-                			printf("Failed %d %d\n", trail.size(), nVars());
+                			if(verbosity > 0)
+                				printf("Failed %d %d\n", trail.size(), nVars());
                 			for(int i = 0; i < nVars(); i++){
 								if(assigns[i] == l_Undef){
 									//printf("%d \n", i);
