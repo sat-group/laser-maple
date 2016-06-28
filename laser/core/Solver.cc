@@ -666,7 +666,6 @@ CRef Solver::propagate()
     CRef    confl     = CRef_Undef;
     int     num_props = 0;
     watches.cleanAll();
-
     while (qhead < trail.size()){
         Lit            p   = trail[qhead++];     // 'p' is enqueued fact to propagate.
         vec<Watcher>&  ws  = watches[p];
@@ -1001,6 +1000,7 @@ lbool Solver::search(int nof_conflicts)
 
             if (learnts.size()-nAssigns() >= max_learnts) {
                 // Reduce the set of learnt clauses:
+            	printf("reduce %f\n", max_learnts);
                 reduceDB();
 #if RAPID_DELETION
                 max_learnts += 500;

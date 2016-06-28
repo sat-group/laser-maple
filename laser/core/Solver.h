@@ -206,6 +206,24 @@ public:
     }
 
 
+    void numOccsForVars(vec<int> & num_occs){
+    	num_occs.growTo(nVars(), 0);
+    	for(int i = 0; i < clauses.size(); i++){
+    		CRef cr = clauses[i];
+    		Clause& c = ca[cr];
+    		for (int j = 0; j < c.size(); j++){
+				Var x = var(c[j]);
+				num_occs[x] += 1;
+    		}
+    	}
+    	//for(int i = 0; i < num_occs.size(); i++){
+    	//	printf("%d ", num_occs[i]);
+    	//}
+    	//printf("\n");
+    }
+
+
+
 protected:
 
     // LASER misc:

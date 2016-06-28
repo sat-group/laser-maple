@@ -20,6 +20,12 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 #include <errno.h>
 
+#include <random>  // EDXXX for rand
+#include <vector>  // EDXXX
+#include <algorithm> //EDXXX
+
+#include <iostream>
+#include <time.h> //EDXXX
 #include <signal.h>
 #include <zlib.h>
 #include <sys/resource.h>
@@ -72,6 +78,52 @@ static void SIGINT_exit(int signum) {
     _exit(1); }
 
 
+
+void weighted_choice(vec<int>& num_occs, vec<int>& chosen, int target_size, int initial_sum){
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	int curr_sum = initial_sum;
+	vec<bool> picked;
+	bool flag;
+	picked.growTo(num_occs.size(), false);
+	for(int iter = 0; iter < target_size; iter++){
+		if(curr_sum == 0){
+			chosen.clear();
+			return;
+			//printf("ERROR in weighted choice -- degenerate curr_sum\n");
+			//exit(1);
+		}
+		std::uniform_int_distribution<unsigned long long> dis(1, curr_sum);
+		int val = dis(gen);
+		//printf("val: %d %d\n", val, initial_sum);
+		int upto = 0;
+		flag = false;
+		for(int i = 0; i < num_occs.size(); i++){
+			if(picked[i])
+				continue;
+			if(upto + num_occs[i] >= val){
+				//hit, add to chosen, makes sure it can't be picked again
+				picked[i] = true;
+				curr_sum -= num_occs[i];
+				chosen.push(i);
+				flag = true;
+				break;
+			}
+			upto += num_occs[i];
+		}
+		if(!flag){
+			printf("ERROR in weighted choice\n");
+			exit(1);
+		}
+
+	}
+	if(target_size != chosen.size()){
+		printf("ERROR, wrong chosen size!\n");
+	}
+	//printf("Chosen(%d, %d): ", chosen.size(), target_size);
+
+}
+
 //=================================================================================================
 // Main:
 
@@ -100,6 +152,12 @@ int main(int argc, char** argv)
         // LASER options:
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (zero-based).\n");
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
+
+        // LLL expt setup:
+        BoolOption   probabilistic_lll_experiment("LASER","prob-lll-expt","Run the probabilistic LLL expt.\n",false);
+        DoubleOption probabilistic_lll_k("LASER","prob-lll-k","Percentage of variables to pick.\n", 0, DoubleRange(0, true, 1, true));
+        IntOption    probabilistic_lll_iters("LASER", "prob-lll-iters","Number of instances to generate.\n", 100, IntRange(1, INT32_MAX));
+        IntOption    probabilistic_lll_bias_function("MAIN", "prob-lll-bias",   "Choose the bias function for picking variables (0=high degree, 1=random).", 0, IntRange(0, 1));
 
         parseOptions(argc, argv, true);
         
@@ -155,6 +213,7 @@ int main(int argc, char** argv)
         	exit(0);
         }
         gzclose(in);
+
         FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
 
         if (S.verbosity > 0){
@@ -173,6 +232,7 @@ int main(int argc, char** argv)
 
 
         S.eliminate(true);
+
         double simplified_time = cpuTime();
         if (S.verbosity > 0){
             printf("|  Simplification time:  %12.2f s                                       |\n", simplified_time - parsed_time);
@@ -196,6 +256,80 @@ int main(int argc, char** argv)
             if (S.verbosity > 0)
                 printStats(S);
             exit(0);
+        }
+
+
+        if(probabilistic_lll_experiment){ // EDXXX
+        	// check that k was given
+        	if(probabilistic_lll_k < 0.000001){
+        		printf("k not given, or equal to zero\n");
+        		exit(1);
+        	}
+        	float k = (float) probabilistic_lll_k;
+        	int max_iters = (int) probabilistic_lll_iters;
+        	int target_size = (int) (k * S.nVars());
+        	vec<int> check_bias;
+			check_bias.growTo(S.nVars(), 0);
+			if(S.verbosity > 0)
+				printf("Setting up probabilistic analysis with k = %f and iters = %d\n", k, max_iters);
+
+			if(probabilistic_lll_bias_function == 0)
+			{
+				// bias favoring high degree
+				vec<int> num_occs;
+				S.numOccsForVars(num_occs);
+
+				int initial_sum = 0;
+				for(int i = 0; i < num_occs.size(); i++)
+					initial_sum += num_occs[i];
+				//printf("init: %d\n", initial_sum);
+
+				vec<int> chosen; // the vars to be set as decision vars and tested
+
+
+				for(int iter = 0; iter < max_iters; iter++){
+					chosen.clear();
+					weighted_choice(num_occs, chosen, target_size, initial_sum);
+					if(chosen.size() == 0)
+						printf("Trivial\n");
+					else{
+						for(int i = 0; i < chosen.size(); i++){
+							printf("%d ", chosen[i]);
+							check_bias[ chosen[i] ] += 1;
+						}
+						printf("\n");
+					}
+				}
+				//bias check
+				//printf("Checking Bias\n");
+				//for(int i = 0; i < S.nVars(); i++){
+				//	printf("%d %d %d\n", i, num_occs[i], check_bias[i]);
+				//}
+			}
+			else if(probabilistic_lll_bias_function == 1){
+				// random
+				std::srand(time(0));
+				std::vector<unsigned int> indices(S.nVars());
+				std::iota(indices.begin(), indices.end(), 0);
+				for(int iter = 0; iter < max_iters; iter++){
+					std::random_shuffle(indices.begin(), indices.end());
+					for(int i = 0; i < target_size; i++){
+						printf("%d ", indices[i]);
+						check_bias[ indices[i] ] += 1;
+					}
+					printf("\n");
+				}
+
+				//bias check
+				//printf("Checking Bias\n");
+				//for(int i = 0; i < S.nVars(); i++){
+				//	printf("%d %d\n", i, check_bias[i]);
+				//}
+			}
+
+
+
+			exit(0);
         }
 
         vec<Lit> dummy;
