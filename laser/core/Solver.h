@@ -184,6 +184,7 @@ protected:
     vec<Var>  lsr_toclear;
     ClauseAllocator ca_lsr;
     vec<Var> lsr_final;
+    vec<int> is_lsr;
 
     const char * lsr_filename;
     bool lsr_num;
@@ -197,6 +198,13 @@ protected:
             clause.push(c[i]);
 
         getDecisions(clause, decisions);
+    }
+
+    bool isLSR(Var x){
+        if (is_lsr[x] >= 2)
+            return true;
+        else 
+            return false;
     }
 
     void printLSR(){

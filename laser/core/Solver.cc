@@ -162,6 +162,7 @@ Var Solver::newVar(bool sign, bool dvar)
     lbd_seen.push(0);
     picked.push(0);
     conflicted.push(0);
+    is_lsr.push(0);
     lsr_seen.push(0);
     unit_lsr.push(CRef_Undef);
 #if ALMOST_CONFLICT
@@ -615,7 +616,6 @@ void Solver::analyzeFinal(Lit p, vec<Lit>& out_conflict)
     seen[var(p)] = 0;
 }
 
-
 void Solver::uncheckedEnqueue(Lit p, CRef from)
 {
     assert(value(p) == l_Undef);
@@ -1011,6 +1011,36 @@ lbool Solver::search(int nof_conflicts)
                     newDecisionLevel();
                 }else if (value(p) == l_False){
                     analyzeFinal(~p, conflict);
+
+                    vec<Lit> decision_clause;
+                    getDecisions(conflict, decision_clause);
+                    assert (decision_clause.size() > 0);
+
+                  for (int i = 0; i < decision_clause.size(); i++){
+                    Var x = var(decision_clause[i]);
+                    if (!seen[x]){
+                      lsr_final.push(x);
+                      seen[x] = 1;
+                    } 
+                  }
+
+                  // should we include assumptions in the LSR?
+                  for (int i = 0; i < conflict.size(); i++){
+                    Var x = var(conflict[i]);
+                   if (!seen[x]){
+                      lsr_final.push(x);
+                      seen[x] = 1;
+                    }  
+                  }
+
+                  // clean up
+                  for (int i = 0; i < lsr_final.size(); i++)
+                    seen[lsr_final[i]] = 0;
+
+                 //  //printLSR();
+
+                 // printf("HERE!\n");
+
                     return l_False;
                 }else{
                     next = p;
@@ -1178,6 +1208,21 @@ lbool Solver::solve_()
       for (int i = 0; i < lsr_final.size(); i++){
         fprintf(res_log, "%d\n",lsr_final[i]);
       }
+    }
+
+
+    for (int i = 0; i < lsr_final.size(); i++){
+        is_lsr[lsr_final[i]]++;
+        lsr_seen[lsr_final[i]]=1;
+    }
+
+    for (int i = 0; i < lsr_seen.size(); i++){
+        if (lsr_seen[i] == 1){
+            lsr_seen[i] = 0;
+        } else {
+            if (is_lsr[i] > 0)
+                is_lsr[i]--;
+        }
     }
 
     lsr_final.clear();
