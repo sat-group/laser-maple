@@ -1,4 +1,4 @@
-/***************************************************************************************[Solver.cc]
+	/***************************************************************************************[Solver.cc]
 Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
 Copyright (c) 2007-2010, Niklas Sorensson
 
@@ -55,6 +55,7 @@ static DoubleOption  opt_garbage_frac      (_cat, "gc-frac",     "The fraction o
 #if BRANCHING_HEURISTIC == CHB
 static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward multiplier", 0.9, DoubleRange(0, true, 1, true));
 #endif
+static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
 
 
 //=================================================================================================
@@ -91,6 +92,8 @@ Solver::Solver() :
     // Parameters (the rest):
     //
   , learntsize_factor((double)1/(double)3), learntsize_inc(1.1)
+
+  , always_restart (opt_always_restart)
 
     // Parameters (experimental):
     //
@@ -1156,8 +1159,12 @@ lbool Solver::solve_()
     // Search:
     int curr_restarts = 0;
     while (status == l_Undef){
-        double rest_base = luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts);
-        status = search(rest_base * restart_first);
+    	double rest_base;
+		if(always_restart)
+			rest_base = 1;
+		else
+			rest_base = (luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts)) * restart_first;
+		status = search(rest_base);
         if (!withinBudget()) break;
         curr_restarts++;
     }
