@@ -364,10 +364,13 @@ Lit Solver::pickBranchLit()
 |        rest of literals. There may be others from the same level though.
 |  
 |________________________________________________________________________________________________@*/
-void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
+void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side, int& out_btlevel)
 {
     int pathC = 0;
     Lit p     = lit_Undef;
+
+    for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
+
 
     // Generate conflict clause:
     //
@@ -377,6 +380,16 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
     do{
         assert(confl != CRef_Undef); // (otherwise should be UIP)
         Clause& c = ca[confl];
+
+        // lsr -- grab the vars that any learnt depends upon
+        if(c.learnt()){
+        	for (int i = c.size(); i < c.rsize(); i++){
+			  if (!lsr_seen[var(c[i])]){
+				lsr_seen[var(c[i])] = 1;
+				lsr_reason_side.push(c[i]);
+			  }
+			}
+        }
 
 #if LBD_BASED_CLAUSE_DELETION
         if (c.learnt() && c.activity() > 2)
@@ -483,12 +496,19 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
         }
     }
 #endif
+    for (i = 0; i < lsr_reason_side.size(); i++) lsr_seen[var(lsr_reason_side[i])] = 0;
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
 }
 
 void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
 {
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
+
+  // now that decisions may start with lits, don't revisit var already in decisions
+  for (int i = 0; i < decisions.size(); i++){
+	  lsr_seen[var(decisions[i])] = 1;
+	  lsr_toclear.push(var(decisions[i]));
+  }
 
   vec<Lit> workpool; clause.copyTo(workpool);
   while (workpool.size() > 0){
@@ -887,12 +907,16 @@ lbool Solver::search(int nof_conflicts)
             if (decisionLevel() == 0) return l_False;
 
             learnt_clause.clear();
-            analyze(confl, learnt_clause, backtrack_level);
+            vec<Lit> decision_clause;
+            // analyze will now put the dependency lits from the conflict side in decision_clause
+            analyze(confl, learnt_clause, decision_clause, backtrack_level);
+            //decision_clause.clear();
 
             if (learnt_clause.size() == 1){
                 unit_assumptions.push(learnt_clause[0]);
-                                
-                vec<Lit> decision_clause;
+                // vec<Lit> decision_clause;
+
+
                 assert (confl != CRef_Undef);
                 getDecisions(confl, decision_clause);
                 assert (decision_clause.size() > 0);
@@ -908,7 +932,7 @@ lbool Solver::search(int nof_conflicts)
                   }
 
                   for (int i = 0; i < decision_clause.size(); i++){
-                    Var x = var(c[i]);
+                    Var x = var(decision_clause[i]);
                     if (!seen[x]){
                       lsr_final.push(x);
                       seen[x] = 1;
@@ -948,7 +972,7 @@ lbool Solver::search(int nof_conflicts)
             action = trail.size();
 #endif
 
-                vec<Lit> decision_clause;
+                //vec<Lit> decision_clause;
                 int size = learnt_clause.size();
                 getDecisions(learnt_clause, decision_clause);
                 //assert (confl != CRef_Undef);
