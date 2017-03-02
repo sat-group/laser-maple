@@ -56,6 +56,7 @@ static DoubleOption  opt_garbage_frac      (_cat, "gc-frac",     "The fraction o
 static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward multiplier", 0.9, DoubleRange(0, true, 1, true));
 #endif
 static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
+static BoolOption    opt_never_restart      (_cat, "never-restart",        "Restart never.", false);
 
 
 //=================================================================================================
@@ -94,7 +95,7 @@ Solver::Solver() :
   , learntsize_factor((double)1/(double)3), learntsize_inc(1.1)
 
   , always_restart (opt_always_restart)
-
+  , never_restart (opt_never_restart)
     // Parameters (experimental):
     //
   , learntsize_adjust_start_confl (100)
@@ -1186,6 +1187,8 @@ lbool Solver::solve_()
     	double rest_base;
 		if(always_restart)
 			rest_base = 1;
+		else if(never_restart)
+			rest_base = -1;
 		else
 			rest_base = (luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts)) * restart_first;
 		status = search(rest_base);

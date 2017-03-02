@@ -143,6 +143,7 @@ public:
     double    learntsize_adjust_inc;
 
     bool always_restart;
+    bool never_restart;
 
     // Statistics: (read-only member variable)
     //
