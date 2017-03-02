@@ -438,7 +438,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
             abstract_level |= abstractLevel(var(out_learnt[i])); // (maintain an abstraction of levels involved in conflict)
 
         for (i = j = 1; i < out_learnt.size(); i++)
-            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level))
+            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level, lsr_reason_side))
                 out_learnt[j++] = out_learnt[i];
         
     }else if (ccmin_mode == 1){
@@ -449,6 +449,15 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
                 out_learnt[j++] = out_learnt[i];
             else{
                 Clause& c = ca[reason(var(out_learnt[i]))];
+                // lsr -- grab the vars that any learnt depends upon
+				if(c.learnt()){
+					for (int i = c.size(); i < c.rsize(); i++){
+					  if (!lsr_seen[var(c[i])]){
+						lsr_seen[var(c[i])] = 1;
+						lsr_reason_side.push(c[i]);
+					  }
+					}
+				}
                 for (int k = 1; k < c.size(); k++)
                     if (!seen[var(c[k])] && level(var(c[k])) > 0){
                         out_learnt[j++] = out_learnt[i];
@@ -582,14 +591,22 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
 
 // Check if 'p' can be removed. 'abstract_levels' is used to abort early if the algorithm is
 // visiting literals at levels that cannot be removed later.
-bool Solver::litRedundant(Lit p, uint32_t abstract_levels)
+bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_reason_side)
 {
     analyze_stack.clear(); analyze_stack.push(p);
     int top = analyze_toclear.size();
     while (analyze_stack.size() > 0){
         assert(reason(var(analyze_stack.last())) != CRef_Undef);
         Clause& c = ca[reason(var(analyze_stack.last()))]; analyze_stack.pop();
-
+        // lsr -- grab the vars that any learnt depends upon
+		if(c.learnt()){
+			for (int i = c.size(); i < c.rsize(); i++){
+			  if (!lsr_seen[var(c[i])]){
+				lsr_seen[var(c[i])] = 1;
+				lsr_reason_side.push(c[i]);
+			  }
+			}
+		}
         for (int i = 1; i < c.size(); i++){
             Lit p  = c[i];
             if (!seen[var(p)] && level(var(p)) > 0){
