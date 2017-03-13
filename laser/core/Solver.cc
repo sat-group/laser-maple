@@ -1,4 +1,4 @@
-	/***************************************************************************************[Solver.cc]
+/***************************************************************************************[Solver.cc]
 Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
 Copyright (c) 2007-2010, Niklas Sorensson
 
@@ -365,13 +365,12 @@ Lit Solver::pickBranchLit()
 |        rest of literals. There may be others from the same level though.
 |  
 |________________________________________________________________________________________________@*/
-void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side, int& out_btlevel)
+void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, int& out_btlevel)
 {
     int pathC = 0;
     Lit p     = lit_Undef;
 
     for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
-
 
     // Generate conflict clause:
     //
@@ -387,7 +386,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
         	for (int i = c.size(); i < c.rsize(); i++){
 			  if (!lsr_seen[var(c[i])]){
 				lsr_seen[var(c[i])] = 1;
-				lsr_reason_side.push(c[i]);
+				lsr_conflict_side.push(c[i]);
 			  }
 			}
         }
@@ -433,15 +432,19 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
     int i, j;
     out_learnt.copyTo(analyze_toclear);
     if (ccmin_mode == 2){
+    	printf("Exiting -- ccmin still broken for lsr\n");
+    	exit(1);
         uint32_t abstract_level = 0;
         for (i = 1; i < out_learnt.size(); i++)
             abstract_level |= abstractLevel(var(out_learnt[i])); // (maintain an abstraction of levels involved in conflict)
 
         for (i = j = 1; i < out_learnt.size(); i++)
-            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level, lsr_reason_side))
+            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level, lsr_conflict_side))
                 out_learnt[j++] = out_learnt[i];
         
     }else if (ccmin_mode == 1){
+    	printf("Exiting -- did not handle ccmin mode for lsr\n");
+    	exit(1);
         for (i = j = 1; i < out_learnt.size(); i++){
             Var x = var(out_learnt[i]);
 
@@ -454,7 +457,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
 					for (int i = c.size(); i < c.rsize(); i++){
 					  if (!lsr_seen[var(c[i])]){
 						lsr_seen[var(c[i])] = 1;
-						lsr_reason_side.push(c[i]);
+						lsr_conflict_side.push(c[i]);
 					  }
 					}
 				}
@@ -506,11 +509,11 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_reason_side
         }
     }
 #endif
-    for (i = 0; i < lsr_reason_side.size(); i++) lsr_seen[var(lsr_reason_side[i])] = 0;
+    for (i = 0; i < lsr_conflict_side.size(); i++) lsr_seen[var(lsr_conflict_side[i])] = 0;
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
 }
 
-void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
+void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag)
 {
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
@@ -522,14 +525,17 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
 
   vec<Lit> workpool; clause.copyTo(workpool);
   while (workpool.size() > 0){
-
     Var x = var(workpool.last());
     Lit p = workpool.last();
     if (lsr_seen[x]){
+    	if(print_flag){
+    		printf("Skipping %d\n", x);
+    	}
       workpool.pop();
       continue;
     }
-    //printf("workpool %d\n",x+1);
+    if(print_flag)
+    	printf("workpool %s%d\n", sign(p)?"-":"", var(p));
 
     assert (lsr_seen[x] == 0);
     lsr_seen[x] = 1;
@@ -537,7 +543,10 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
     workpool.pop();
 
     if (assumption(x)){
-      //printf("assumption!\n");
+    	if(print_flag){
+    		printf("assumption: %d\n", x);
+
+    	}
       // Unit clause
       assert (unit_lsr[x] != CRef_Undef);
       Clause &cu = ca_lsr[unit_lsr[x]];
@@ -549,7 +558,9 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
         }
       }
     } else if (reason(x) == CRef_Undef){
-      //printf("decision!\n");
+    	if(print_flag){
+    		printf("decision: %s%d\n", sign(p)?"-":"", var(p));
+    	}
       // Decision variable
       if (!seen[x]){
         seen[x] = 1;
@@ -560,7 +571,18 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
       
       Clause &c = ca[reason(x)];
       if (c.learnt()){
-        //printf("learnt!\n");
+    	  if(print_flag){
+    		  printf("learnt: ");
+    		  for (int i = 0; i < c.size(); i++){
+    			  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+    		  }
+    		  printf("\n");
+    		  printf("ldeps: ");
+			  for (int i = c.size(); i < c.rsize(); i++){
+				  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+			  }
+			  printf("\n");
+    	  }
         for (int i = c.size(); i < c.rsize(); i++){
           if (!seen[var(c[i])]){
             seen[var(c[i])] = 1;
@@ -568,7 +590,13 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
           }
         }
       } else {
-        //printf("clause!\n");
+    	  if(print_flag){
+    		  printf("clause!\n");
+    		  for (int i = 0; i < c.size(); i++){
+				  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+			  }
+			  printf("\n");
+    	  }
         for (int i = 0; i < c.size(); i++){
           if (!lsr_seen[var(c[i])] && !seen[var(c[i])]){
             workpool.push(c[i]);
@@ -591,7 +619,7 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions)
 
 // Check if 'p' can be removed. 'abstract_levels' is used to abort early if the algorithm is
 // visiting literals at levels that cannot be removed later.
-bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_reason_side)
+bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflict_side)
 {
     analyze_stack.clear(); analyze_stack.push(p);
     int top = analyze_toclear.size();
@@ -603,7 +631,7 @@ bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_reason_
 			for (int i = c.size(); i < c.rsize(); i++){
 			  if (!lsr_seen[var(c[i])]){
 				lsr_seen[var(c[i])] = 1;
-				lsr_reason_side.push(c[i]);
+				lsr_conflict_side.push(c[i]);
 			  }
 			}
 		}
@@ -928,6 +956,7 @@ lbool Solver::search(int nof_conflicts)
             vec<Lit> decision_clause;
             // analyze will now put the dependency lits from the conflict side in decision_clause
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
+            //printf("lsize: %d %d\n", learnt_clause.size(), decision_clause.size());
             //decision_clause.clear();
 
             if (learnt_clause.size() == 1){
@@ -936,19 +965,29 @@ lbool Solver::search(int nof_conflicts)
 
 
                 assert (confl != CRef_Undef);
+                //printf("------------------------------------\n");
                 getDecisions(confl, decision_clause);
+                //printf("Deps: ");
+                //for(int i = 0; i < decision_clause.size(); i++)
+                //	printf("%d ", var(decision_clause[i]));
+                //printf("\n");
+                //printf("Unit Lit: %s%d\n", sign(learnt_clause[0])?"-":"", var(learnt_clause[0]));
+
                 assert (decision_clause.size() > 0);
 
                 if (assumption(var(learnt_clause[0]))){
 
                   assert(unit_lsr[var(learnt_clause[0])]!=CRef_Undef);
                   Clause &c = ca_lsr[unit_lsr[var(learnt_clause[0])]];
+                  //printf("Other side: ");
                   for (int i = 0; i < c.size(); i++){
                     Var x = var(c[i]);
+                    //printf(" %d", x);
                     seen[x] = 1;
                     lsr_final.push(x);
                   }
-
+                  //printf("\n");
+                  //printf("Conflict on %d\n", var(learnt_clause[0]));
                   for (int i = 0; i < decision_clause.size(); i++){
                     Var x = var(decision_clause[i]);
                     if (!seen[x]){
@@ -1045,7 +1084,7 @@ lbool Solver::search(int nof_conflicts)
 
             if (learnts.size()-nAssigns() >= max_learnts) {
                 // Reduce the set of learnt clauses:
-            	printf("reduce %f\n", max_learnts);
+            	//printf("reduce %f\n", max_learnts);
                 reduceDB();
 #if RAPID_DELETION
                 max_learnts += 500;
@@ -1056,8 +1095,10 @@ lbool Solver::search(int nof_conflicts)
             while (decisionLevel() < assumptions.size() + unit_assumptions.size()){
                 // Perform user provided assumption:
                 Lit p = lit_Undef;
-                if (decisionLevel() < unit_assumptions.size())
-                  p = unit_assumptions[decisionLevel()];   
+                if (decisionLevel() < unit_assumptions.size()){
+                  p = unit_assumptions[decisionLevel()];
+                  //printf("Asserting unit: %s%d\n", sign(p)?"-":"", var(p));
+                }
                 else 
                   p = assumptions[decisionLevel()];
                 assert (p != lit_Undef);
