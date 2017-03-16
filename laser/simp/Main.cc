@@ -152,6 +152,12 @@ int main(int argc, char** argv)
         // LASER options:
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (zero-based).\n");
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
+        // certificate generation
+        StringOption lsr_file_in("LASER","lsr-in","Used to create a certificate for an lsr, generate with -lsr-out (zero-based).\n");
+        StringOption lsr_certificate_file_out("LASER","lsr-cert-out","File to output the decision literal sequence witnessing a backdoor (one-based).\n");
+        // certificate validation
+        StringOption lsr_certificate_file_in("LASER","lsr-cert-in","File containing the decision literal sequence witnessing a backdoor (one-based).\n");
+
 
         // LLL expt setup:
         BoolOption   probabilistic_lll_experiment("LASER","prob-lll-expt","Run the probabilistic LLL expt.\n",false);
@@ -201,13 +207,58 @@ int main(int argc, char** argv)
         if (in == NULL)
             printf("ERROR! Could not open file: %s\n", argc == 1 ? "<stdin>" : argv[1]), exit(1);
         
+
+
         if (S.verbosity > 0){
             printf("============================[ Problem Statistics ]=============================\n");
             printf("|                                                                             |\n"); }
-        
+
         S.setDecisionVarsList(decision_vars);
 
         parse_DIMACS(in, S);
+
+        // lsr verification files
+		if(lsr_certificate_file_out || lsr_file_in){
+			S.generate_certificate = true;
+			S.lsr_in.growTo(S.nVars(), 0);
+			const char* file_name = lsr_file_in;
+			FILE* lsr_in = fopen (file_name, "r");
+			if (lsr_in == NULL)
+				printf("ERROR! Could not open file: %s\n", file_name), exit(1);
+			int i = 0;
+			while (fscanf(lsr_in, "%d", &i) == 1) {
+				S.lsr_in[i] = true;
+			}
+			fclose(lsr_in);
+			const char* file_name2 = lsr_certificate_file_out;
+			S.certificate_out = fopen(file_name2, "wb");
+		}
+        
+		if(lsr_certificate_file_in){
+			S.verification_mode = true;
+			const char* file_name = lsr_certificate_file_in;
+			FILE* cert_in = fopen (file_name, "r");
+			if (cert_in == NULL)
+				printf("ERROR! Could not open file: %s\n", file_name), exit(1);
+			int i = 0;
+			int count = -1;
+			while (fscanf(cert_in, "%d", &i) == 1) {
+				if(i == 0){
+					// todo restart?
+					S.restart_indices.growTo(S.replay_lits.size(), 0);
+					S.restart_indices[count] = 1;
+				}
+				else{
+					Var v = abs(i) - 1;
+				    Lit l = i > 0 ? mkLit(v) : ~mkLit(v);
+					S.replay_lits.push(l);
+					count++;
+				}
+
+			}
+			fclose(cert_in);
+		}
+
         if(S.nVars() == 0 && S.nClauses() == 0){ // EDXXX
         	printf("TRIVIAL\n");
         	exit(0);

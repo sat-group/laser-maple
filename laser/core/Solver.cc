@@ -23,6 +23,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "mtl/Sort.h"
 #include "core/Solver.h"
 
+
 using namespace Minisat;
 
 //=================================================================================================
@@ -132,6 +133,11 @@ Solver::Solver() :
   , conflict_budget    (-1)
   , propagation_budget (-1)
   , asynch_interrupt   (false)
+  , generate_certificate (false)
+  , verification_mode (false)
+  , curr_replay_lits_index (0)
+  , restart_now(false)
+  , restart_immediately(false)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
@@ -141,6 +147,8 @@ Solver::Solver() :
 
 Solver::~Solver()
 {
+	if(generate_certificate)
+		fclose(certificate_out);
 }
 
 
@@ -307,6 +315,34 @@ void Solver::cancelUntil(int level) {
 
 Lit Solver::pickBranchLit()
 {
+	if(verification_mode){
+		// check if skipping occurs
+		while(replay_lits.size() > curr_replay_lits_index && assigns[var(replay_lits[curr_replay_lits_index])] != l_Undef){
+			if(verbosity > 0)
+				printf("Skipping (%d): %s%d\n", curr_replay_lits_index, sign(replay_lits[curr_replay_lits_index]) ? "-":"", var(replay_lits[curr_replay_lits_index]));
+			//exit(1);
+			//if(curr_replay_lits_index == replay_lits.size() - 1)
+			//	skipped_last_lit = true;
+			if(restart_indices[curr_replay_lits_index]){
+				printf("Attempted skipping restart index\n");
+			}
+			curr_replay_lits_index++;
+			restart_immediately = true;
+			return lit_Undef;
+		}
+		if(replay_lits.size() <= curr_replay_lits_index){
+			// put the new branches in next_vars
+			//printf("\n");
+			printf("FAILED: ran out of trail\n");
+			return lit_Undef;
+		}
+		//printf("NEW VAR: %d\n", replay_trail[curr_replay_trail_index]);
+		if(restart_indices[curr_replay_lits_index])
+			restart_now = true;
+		return replay_lits[curr_replay_lits_index++];
+	}
+
+
     Var next = var_Undef;
 
     // Random decision:
@@ -524,6 +560,9 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
   }
 
   vec<Lit> workpool; clause.copyTo(workpool);
+
+  vec<Lit> cert_decisions; // only used for certificate gen
+
   while (workpool.size() > 0){
     Var x = var(workpool.last());
     Lit p = workpool.last();
@@ -565,6 +604,12 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
       if (!seen[x]){
         seen[x] = 1;
         decisions.push(p);
+        if(generate_certificate){
+        	// add the decision literal to the current decisions vec
+        	//cert_decision_levels[level(var(p))] = 1;
+        	cert_decisions.push(p);
+
+        }
       }
     } else {
       // Reason is a clause
@@ -612,6 +657,58 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
   for (int i = 0; i < decisions.size(); i++){
     seen[var(decisions[i])] = 0;
     //printf("dec %d\n",var(decisions[i])+1);
+  }
+
+  // certificate generation
+  if(generate_certificate){
+	  bool all_lsr_clause = true;
+	  // check if all decisions are in lsr_in
+	  for (int i = 0; i < decisions.size(); i++){
+		  if(!lsr_in[var(decisions[i])]){
+			  all_lsr_clause = false;
+			  break;
+		  }
+	  }
+	  // if so, add the current D_c to the certificate, which will be used to generate the current clause
+	  if(all_lsr_clause && cert_decisions.size() != 0){
+		  /*
+		  for(int i = 0; i < cert_decisions.size(); i++){
+			  Lit l = cert_decisions[i];
+			  printf("PRE %s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
+			  //fprintf(certificate_out, "%s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
+		  }
+		  //fprintf(certificate_out, "\n");
+		  */
+		  // ensure literals are outputted in order according to decision level
+		  for(int i = 0; i < cert_decisions.size() - 1; i++){
+			  for(int j = i + 1; j < cert_decisions.size(); j++){
+				  if(level(var(cert_decisions[i])) > level(var(cert_decisions[j]))){
+					  Lit temp = cert_decisions[j];
+					  cert_decisions[j] = cert_decisions[i];
+					  cert_decisions[i] = temp;
+				  }
+			  }
+		  }
+		  printf("CERT:\n");
+		  for(int i = 0; i < cert_decisions.size(); i++){
+			  Lit l = cert_decisions[i];
+			  printf("%s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
+			  fprintf(certificate_out, "%s%d\n", sign(l)?"-":"", var(l) + 1); // TODO SIGN!!!!!
+		  }
+		  printf("\nTRAIL:\n");
+		  for(int i = 0; i < cert_decisions.size(); i++){
+			  Var v = var(cert_decisions[i]);
+			  printf("%s%d\n", assigns[v] == l_False ?"-":"", v + 1);
+		  }
+		  printf("\n");
+
+		  // fprintf(certificate_out, "0\n");
+		  printf("LEARNT: \n");
+		  for (int i = 0; i < clause.size(); i++){
+			  printf("%s%d ", sign(clause[i])?"-":"", var(clause[i]));
+		  }
+		  printf("\n");
+	  }
   }
 
   lsr_toclear.clear();
@@ -959,6 +1056,14 @@ lbool Solver::search(int nof_conflicts)
             //printf("lsize: %d %d\n", learnt_clause.size(), decision_clause.size());
             //decision_clause.clear();
 
+            if(verification_mode){
+            	printf("LEARNT: \n");
+				for (int i = 0; i < learnt_clause.size(); i++){
+				  printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]));
+				}
+				printf("\n");
+            }
+
             if (learnt_clause.size() == 1){
                 unit_assumptions.push(learnt_clause[0]);
                 // vec<Lit> decision_clause;
@@ -1072,8 +1177,11 @@ lbool Solver::search(int nof_conflicts)
 
         }else{
             // NO CONFLICT
-            if (nof_conflicts >= 0 && conflictC >= nof_conflicts || !withinBudget()){
+            if (restart_now || (nof_conflicts >= 0 && conflictC >= nof_conflicts || !withinBudget())){
                 // Reached bound on number of conflicts:
+            	restart_now = false;
+            	if(generate_certificate)
+            		fprintf(certificate_out, "0\n");
                 progress_estimate = progressEstimate();
                 cancelUntil(0);
                 return l_Undef; }
@@ -1118,6 +1226,15 @@ lbool Solver::search(int nof_conflicts)
                 // New variable decision:
                 decisions++;
                 next = pickBranchLit();
+                if (restart_immediately){
+					// Reached bound on number of conflicts:
+                	printf("Preemptive restart\n");
+					restart_now = false;
+					restart_immediately = false;
+					progress_estimate = progressEstimate();
+					cancelUntil(0);
+					return l_Undef;
+                }
 
                 if (next == lit_Undef){
                 	if(set_decision_vars){

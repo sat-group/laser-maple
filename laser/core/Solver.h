@@ -225,6 +225,17 @@ public:
     	//printf("\n");
     }
 
+    // lsr certificate creation
+    vec<Var> lsr_in;
+    bool generate_certificate;
+    FILE* certificate_out;
+    // lsr certificate verification
+    bool verification_mode;
+    int curr_replay_lits_index;
+    vec<Lit> replay_lits;
+    vec<char> restart_indices;
+    bool restart_now;
+    bool restart_immediately;
 
 
 protected:
