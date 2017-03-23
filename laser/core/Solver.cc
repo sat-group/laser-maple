@@ -551,6 +551,16 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 	  return;
   }
 
+  // for the final call to the sat case
+  if(clause_and_conflict_side_lsr){
+	  for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
+		for (int i = 0; i < decisions.size(); i++){
+			seen[var(decisions[i])] = 0;
+			//printf("dec %d\n",var(decisions[i])+1);
+		}
+  }
+
+
   vec<Lit> workpool; clause.copyTo(workpool);
   while (workpool.size() > 0){
     Var x = var(workpool.last());
