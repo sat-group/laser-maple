@@ -144,6 +144,7 @@ public:
 
     bool always_restart;
     bool never_restart;
+    bool never_gc;
 
     // Statistics: (read-only member variable)
     //
@@ -228,15 +229,25 @@ public:
     // lsr certificate creation
     vec<Var> lsr_in;
     bool generate_certificate;
-    FILE* certificate_out;
+    FILE* certificate_clauses_out;
+
     // lsr certificate verification
     bool verification_mode;
     int curr_replay_lits_index;
     vec<Lit> replay_lits;
+
+    vec< vec<Lit>* > cls_cert;
+    vec< vec<Lit>* > dec_cert;
+    vec< vec<Lit>* > trail_cert;
+
+    int curr_cert_clause_index;
+    int curr_cert_dec_index;
+    int curr_cert_trail_index;
+
     vec<char> restart_indices;
     bool restart_now;
     bool restart_immediately;
-
+    bool just_restarted;
 
 protected:
 
@@ -252,18 +263,20 @@ protected:
     bool lsr_num;
 
 
-    void getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag=false);
-    void getDecisions(CRef cr, vec<Lit>& decisions){
+    void getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag=false, Lit unit=lit_Undef);
+    void getDecisions(CRef cr, vec<Lit>& decisions, Lit unit){
         Clause& c = ca[cr];
         vec<Lit> clause;
         for (int i = 0; i < c.size(); i++)
             clause.push(c[i]);
-        //printf("Clause that led to unit: ");
-        //for (int i = 0; i < clause.size(); i++)
-        //	printf("%s%d ", sign(clause[i])?"-": "", var(clause[i]));
-        //printf("\n");
+        printf("Clause that led to unit: ");
+        for (int i = 0; i < clause.size(); i++)
+        	printf("%s%d ", sign(clause[i])?"-": "", var(clause[i])+1);
+        if(c.learnt())
+        	printf("L");
+        printf("\n");
 
-        getDecisions(clause, decisions, false);
+        getDecisions(clause, decisions, true, unit);
     }
 
     void printLSR(){

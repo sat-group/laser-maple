@@ -58,6 +58,7 @@ static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward m
 #endif
 static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
 static BoolOption    opt_never_restart      (_cat, "never-restart",        "Restart never.", false);
+static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove clauses.", false);
 
 
 //=================================================================================================
@@ -138,6 +139,8 @@ Solver::Solver() :
   , curr_replay_lits_index (0)
   , restart_now(false)
   , restart_immediately(false)
+  , just_restarted(false)
+  , never_gc(opt_never_gc)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
@@ -147,8 +150,10 @@ Solver::Solver() :
 
 Solver::~Solver()
 {
-	if(generate_certificate)
-		fclose(certificate_out);
+	if(generate_certificate){
+		fclose(certificate_clauses_out);
+
+	}
 }
 
 
@@ -317,29 +322,57 @@ Lit Solver::pickBranchLit()
 {
 	if(verification_mode){
 		// check if skipping occurs
-		while(replay_lits.size() > curr_replay_lits_index && assigns[var(replay_lits[curr_replay_lits_index])] != l_Undef){
-			if(verbosity > 0)
-				printf("Skipping (%d): %s%d\n", curr_replay_lits_index, sign(replay_lits[curr_replay_lits_index]) ? "-":"", var(replay_lits[curr_replay_lits_index]));
-			//exit(1);
-			//if(curr_replay_lits_index == replay_lits.size() - 1)
-			//	skipped_last_lit = true;
-			if(restart_indices[curr_replay_lits_index]){
-				printf("Attempted skipping restart index\n");
+		while(cls_cert[curr_cert_clause_index]->size() == 0){
+			curr_cert_clause_index++;
+			curr_cert_dec_index = 0;
+			curr_cert_trail_index = 0;
+		}
+		vec<Lit>* c = cls_cert[curr_cert_clause_index];
+		vec<Lit>* decs = dec_cert[curr_cert_clause_index];
+		while(curr_cert_dec_index < decs->size()){
+			lbool b = assigns[var((*decs)[curr_cert_dec_index])];
+			Lit l = (*decs)[curr_cert_dec_index];
+			if(b == l_Undef)
+				break;
+			else if((b == l_False && !sign(l)) || (b == l_True && sign(l))){
+				printf("Warning: sign mismatch on %d\n", var(l) + 1);
+				if(just_restarted){
+					//printf("Already tried restarting. Failed.\n");
+					//exit(1);
+				}
+				curr_cert_dec_index = 0;
+				curr_cert_trail_index = 0;
+				just_restarted = true;
+				restart_immediately = true;
+				return lit_Undef;
 			}
-			curr_replay_lits_index++;
-			restart_immediately = true;
-			return lit_Undef;
+			else{
+				//xxx
+				printf("Skipping %s%d (", sign(l)?"-":"",  var(l) + 1);
+				if(reason(var(l)) != CRef_Undef){
+					Clause &c = ca[reason(var(l))];
+					if (c.learnt())
+						printf("L ");
+					for (int i = 0; i < c.size(); i++){
+						printf("%s%d ", sign(c[i])?"-":"", var(c[i]) + 1);
+					}
+				}
+				printf(")\n");
+			}
+			curr_cert_dec_index++;
 		}
-		if(replay_lits.size() <= curr_replay_lits_index){
-			// put the new branches in next_vars
-			//printf("\n");
-			printf("FAILED: ran out of trail\n");
-			return lit_Undef;
+		if(curr_cert_dec_index == decs->size()){
+			printf("Failed to derive current clause\n");
+			exit(1);
 		}
-		//printf("NEW VAR: %d\n", replay_trail[curr_replay_trail_index]);
-		if(restart_indices[curr_replay_lits_index])
-			restart_now = true;
-		return replay_lits[curr_replay_lits_index++];
+		else{
+			lbool b = assigns[var((*decs)[curr_cert_dec_index])];
+			Lit l = (*decs)[curr_cert_dec_index++];
+			//if((b == l_False && !sign(l)) || (b == l_True && sign(l)))
+			//	printf("Warning: sign mismatch on %d\n", var(l));
+			printf("Picking %s%d\n", sign(l)?"-":"", var(l) + 1);
+			return l;
+		}
 	}
 
 
@@ -549,15 +582,17 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
 }
 
-void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag)
+void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag, Lit unit)
 {
+	print_flag = true;
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
-  // now that decisions may start with lits, don't revisit var already in decisions
-  for (int i = 0; i < decisions.size(); i++){
-	  lsr_seen[var(decisions[i])] = 1;
-	  lsr_toclear.push(var(decisions[i]));
+   // don't re-add vars from the conflict side learnts to decisions
+   // (but still explore them by not adding to lsr_seen)
+   for (int i = 0; i < decisions.size(); i++){
+	  seen[var(decisions[i])] = 1;
   }
+
 
   vec<Lit> workpool; clause.copyTo(workpool);
 
@@ -574,16 +609,16 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
       continue;
     }
     if(print_flag)
-    	printf("workpool %s%d\n", sign(p)?"-":"", var(p));
+    	printf("workpool %s%d\n", sign(p)?"-":"", var(p) + 1);
 
-    assert (lsr_seen[x] == 0);
+    assert(lsr_seen[x] == 0);
     lsr_seen[x] = 1;
     lsr_toclear.push(x);
     workpool.pop();
 
     if (assumption(x)){
     	if(print_flag){
-    		printf("assumption: %d\n", x);
+    		printf("assumption: %d\n", x + 1);
 
     	}
       // Unit clause
@@ -598,18 +633,19 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
       }
     } else if (reason(x) == CRef_Undef){
     	if(print_flag){
-    		printf("decision: %s%d\n", sign(p)?"-":"", var(p));
+    		printf("decision: %s%d\n", sign(p)?"-":"", var(p)+1);
     	}
       // Decision variable
+    	if(generate_certificate){
+			// add the decision literal to the current decisions vec
+			//cert_decision_levels[level(var(p))] = 1;
+    		assert(assigns[var(p)] != l_Undef);
+			cert_decisions.push(p);
+		}
       if (!seen[x]){
         seen[x] = 1;
         decisions.push(p);
-        if(generate_certificate){
-        	// add the decision literal to the current decisions vec
-        	//cert_decision_levels[level(var(p))] = 1;
-        	cert_decisions.push(p);
 
-        }
       }
     } else {
       // Reason is a clause
@@ -619,12 +655,12 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
     	  if(print_flag){
     		  printf("learnt: ");
     		  for (int i = 0; i < c.size(); i++){
-    			  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+    			  printf("%s%d ", sign(c[i])?"-":"", var(c[i])+1);
     		  }
     		  printf("\n");
     		  printf("ldeps: ");
 			  for (int i = c.size(); i < c.rsize(); i++){
-				  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+				  printf("%s%d ", sign(c[i])?"-":"", var(c[i])+ 1);
 			  }
 			  printf("\n");
     	  }
@@ -634,21 +670,19 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
             decisions.push(c[i]);
           }
         }
-      } else {
-    	  if(print_flag){
-    		  printf("clause!\n");
-    		  for (int i = 0; i < c.size(); i++){
-				  printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
-			  }
-			  printf("\n");
-    	  }
-        for (int i = 0; i < c.size(); i++){
-          if (!lsr_seen[var(c[i])] && !seen[var(c[i])]){
-            workpool.push(c[i]);
-          }
-        }
       }
-
+	  if(print_flag && !c.learnt()){
+		  printf("clause!\n");
+			  for (int i = 0; i < c.size(); i++){
+				  printf("%s%d ", sign(c[i])?"-":"", var(c[i]) + 1);
+			  }
+		  printf("\n");
+	  }
+		for (int i = 0; i < c.size(); i++){
+		  if (!lsr_seen[var(c[i])]){
+			workpool.push(c[i]);
+		  }
+		}
     }
   }
 
@@ -669,16 +703,23 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 			  break;
 		  }
 	  }
-	  // if so, add the current D_c to the certificate, which will be used to generate the current clause
-	  if(all_lsr_clause && cert_decisions.size() != 0){
-		  /*
-		  for(int i = 0; i < cert_decisions.size(); i++){
-			  Lit l = cert_decisions[i];
-			  printf("PRE %s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
-			  //fprintf(certificate_out, "%s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
+	  if(!all_lsr_clause){
+		  printf("OTHER LEARNT: ");
+		  if(unit == lit_Undef){
+			  for (int i = 0; i < clause.size(); i++){
+				  printf("%s%d ", sign(clause[i])?"-":"", var(clause[i]) + 1);
+			  }
+			  printf("\n-----------------------\n");
 		  }
-		  //fprintf(certificate_out, "\n");
-		  */
+		  else{
+			  printf("%s%d ", sign(unit)?"-":"", var(unit) + 1);
+			  printf("\n-----------------------\n");
+		  }
+	  }
+
+	  // if so, add the current D_c to the certificate, which will be used to generate the current clause
+	  if(all_lsr_clause){
+		  just_restarted = false;
 		  // ensure literals are outputted in order according to decision level
 		  for(int i = 0; i < cert_decisions.size() - 1; i++){
 			  for(int j = i + 1; j < cert_decisions.size(); j++){
@@ -689,25 +730,67 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 				  }
 			  }
 		  }
-		  printf("CERT:\n");
-		  for(int i = 0; i < cert_decisions.size(); i++){
-			  Lit l = cert_decisions[i];
-			  printf("%s%d %d\n", sign(l)?"-":"", var(l) + 1, level(var(l)));
-			  fprintf(certificate_out, "%s%d\n", sign(l)?"-":"", var(l) + 1); // TODO SIGN!!!!!
-		  }
-		  printf("\nTRAIL:\n");
 		  for(int i = 0; i < cert_decisions.size(); i++){
 			  Var v = var(cert_decisions[i]);
-			  printf("%s%d\n", assigns[v] == l_False ?"-":"", v + 1);
+			  assert(assigns[v] != l_Undef);
+			  printf("PICK: %s%d\n", assigns[v] == l_False ?"-":"", v + 1);
 		  }
-		  printf("\n");
+		  printf("LSR TRAIL: [");
+		  for(int i = 0; i < trail.size(); i++){
+			  if(lsr_in[var(trail[i])]){
+				  printf("%s%d ", sign(trail[i]) ?"-":"", var(trail[i]) + 1);
 
-		  // fprintf(certificate_out, "0\n");
-		  printf("LEARNT: \n");
-		  for (int i = 0; i < clause.size(); i++){
-			  printf("%s%d ", sign(clause[i])?"-":"", var(clause[i]));
+			  }
 		  }
-		  printf("\n");
+		  printf("]\n");
+
+		  if(unit == lit_Undef){
+			  printf("LEARNT: ");
+			  for (int i = 0; i < clause.size(); i++){
+				  fprintf(certificate_clauses_out, "%s%d ", sign(clause[i])?"-":"", var(clause[i]) + 1);
+				  printf("%s%d ", sign(clause[i])?"-":"", var(clause[i]) + 1);
+			  }
+			  fprintf(certificate_clauses_out, "0 ");
+			  printf("\n-----------------------\n");
+		  }
+		  else{
+			  printf("LEARNT: ");
+		      printf("%s%d ", sign(unit)?"-":"", var(unit) + 1);
+			  fprintf(certificate_clauses_out, "%s%d ", sign(unit)?"-":"", var(unit) + 1);
+
+			  fprintf(certificate_clauses_out, "0 ");
+			  printf("\n-----------------------\n");
+		  }
+
+		  for(int i = 0; i < cert_decisions.size(); i++){
+			  Var v = var(cert_decisions[i]);
+			  assert(assigns[v] != l_Undef);
+			  fprintf(certificate_clauses_out, "%s%d ", assigns[v] == l_False ? "-" : "", v + 1);
+		  }
+		  fprintf(certificate_clauses_out, "0 ");
+
+		  // todo instead of using the full trail, only consider the vars in decisions
+
+		  for(int i = 0; i < trail.size(); i++){
+			  //if(lsr_in[var(trail[i])]){
+		      fprintf(certificate_clauses_out, "%s%d ", sign(trail[i]) ?"-":"", var(trail[i]) + 1);
+			  //}
+		  }
+		  fprintf(certificate_clauses_out, "0\n");
+
+		  /*
+		  for(int i = 0; i < trail.size(); i++){ // todo used to be trail.size()
+			  Lit l = trail[i];
+			  Var v = var(l);
+			  for(int j = 0; j < decisions.size(); j++){
+				  if(v == var(decisions[j])){
+					  fprintf(certificate_clauses_out, "%s%d ", sign(trail[i]) ?"-":"", var(trail[i]) + 1);
+
+				  }
+			  }
+		  }
+		  fprintf(certificate_clauses_out, "0\n");
+	  	  */
 	  }
   }
 
@@ -794,6 +877,25 @@ void Solver::analyzeFinal(Lit p, vec<Lit>& out_conflict)
 
 void Solver::uncheckedEnqueue(Lit p, CRef from)
 {
+	if(verification_mode){
+		if(lsr_in[var(p)]){
+			printf("Enqueue (%s%d): ", sign(p)?"-":"", var(p) + 1);
+			if(from != CRef_Undef){
+				Clause& c = ca[from];
+				vec<Lit> clause;
+				for (int i = 0; i < c.size(); i++)
+					clause.push(c[i]);
+				for (int i = 0; i < clause.size(); i++)
+					printf("%s%d ", sign(clause[i])?"-": "", var(clause[i])+1);
+				if(c.learnt())
+					printf("L");
+				printf("\n");
+			}
+			else
+				printf("Undef \n");
+		}
+	}
+
     assert(value(p) == l_Undef);
     picked[var(p)] = conflicts;
 #if ANTI_EXPLORATION
@@ -832,12 +934,52 @@ CRef Solver::propagate()
     CRef    confl     = CRef_Undef;
     int     num_props = 0;
     watches.cleanAll();
+
+    /*
+    if(verification_mode){
+		// change here need to reorder watches according to trail
+		vec<Lit>* t = trail_cert[curr_cert_clause_index];
+		vec<Lit>* dec = dec_cert[curr_cert_clause_index];
+
+		// update the trail_index to current state
+		curr_cert_trail_index = trail.size();
+		int nextDec = curr_cert_trail_index;
+		bool flag = false;
+		for(int k = curr_cert_trail_index; k < t->size(); k++){
+			for(int l = 0; l < dec->size(); l++)
+				if((*dec)[l] == (*t)[k]){
+					printf("hit %s%d\n", sign( (*t)[k])?"-":"", var((*t)[k]) + 1);
+					nextDec = k;
+					flag = true;
+					break;
+				}
+			if(flag)
+				break;
+		}
+		printf("Should enqueue (%d %d): ", curr_cert_trail_index, nextDec);
+		for(int k = curr_cert_trail_index; k < nextDec; k++){
+			Lit lit = (*t)[k];
+			printf(" %s%d", sign(lit)?"-":"", var(lit) + 1);
+		}
+		printf("\n");
+	}
+	*/
+    vec<Lit>* t;
+    if(verification_mode)
+		t = trail_cert[curr_cert_clause_index];
+
+
+
     while (qhead < trail.size()){
         Lit            p   = trail[qhead++];     // 'p' is enqueued fact to propagate.
         vec<Watcher>&  ws  = watches[p];
         Watcher        *i, *j, *end;
         num_props++;
-
+        if(verification_mode){
+			printf("Propagating %s%d, watcher size: %d\n", sign(p)?"-":"", var(p) + 1, ws.size());
+        }
+        vec<Lit> enqueue_lits;
+        vec<CRef> enqueue_cr;
         for (i = j = (Watcher*)ws, end = i + ws.size();  i != end;){
             // Try to avoid inspecting the clause:
             Lit blocker = i->blocker;
@@ -874,11 +1016,56 @@ CRef Solver::propagate()
                 // Copy the remaining watches:
                 while (i < end)
                     *j++ = *i++;
-            }else
-                uncheckedEnqueue(first, cr);
-
+            }else{
+            	//if(verification_mode){
+				//	Lit lit = (*t)[trail.size()];
+				//	printf("Should be next: %s%d\n", sign(lit)?"-":"", var(lit) + 1);
+            	//}
+            	if(!verification_mode){
+            		uncheckedEnqueue(first, cr);
+            	}
+            	else{
+            		enqueue_lits.push(first);
+            		enqueue_cr.push(cr);
+            	}
+            }
         NextClause:;
         }
+        if(verification_mode){
+        	printf("Enqueuing all:\n");
+        	// sort based on certificate's trail
+        	for(int k = 0; k < enqueue_lits.size() - 1; k++){
+        		for(int l = k + 1; l < enqueue_lits.size(); l++){
+        			// get indices of lits in t
+        			int index_l = -1;
+        			int index_r = -1;
+        			Lit lit_l = enqueue_lits[k];
+        			Lit lit_r = enqueue_lits[l];
+        			for(int m = 0; m < t->size(); m++){
+        				if((*t)[m] == lit_l)
+        					index_l = m;
+        				else if((*t)[m] == lit_r)
+        					index_r = m;
+        			}
+        			//if(index_l == -1 || index_r == -1)
+        			//	continue;
+        			if(index_l > index_r || index_l == -1){
+        				CRef temp_cr = enqueue_cr[l];
+        				enqueue_lits[l] = lit_l;
+        				enqueue_cr[l] = enqueue_cr[k];
+        				enqueue_lits[k] = lit_r;
+        				enqueue_cr[k] = temp_cr;
+        			}
+        		}
+        	}
+
+        	for(int k = 0; k < enqueue_lits.size(); k++){
+        		Lit lit = enqueue_lits[k];
+        		CRef c = enqueue_cr[k];
+        		uncheckedEnqueue(lit, c);
+        	}
+        }
+
         ws.shrink(i - j);
     }
     propagations += num_props;
@@ -1055,14 +1242,66 @@ lbool Solver::search(int nof_conflicts)
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
             //printf("lsize: %d %d\n", learnt_clause.size(), decision_clause.size());
             //decision_clause.clear();
-
             if(verification_mode){
-            	printf("LEARNT: \n");
+				printf("LEARNT (%d): ", curr_cert_clause_index+1);
 				for (int i = 0; i < learnt_clause.size(); i++){
-				  printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]));
+				  printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]) + 1);
 				}
-				printf("\n");
-            }
+				printf("\nLSR TRAIL: [");
+				for(int i = 0; i < trail.size(); i++){
+				  if(lsr_in[var(trail[i])]){
+					  printf("%s%d ", sign(trail[i]) ?"-":"", var(trail[i]) + 1);
+
+				  }
+				}
+				printf("]\n");
+				printf("\n-----------------------\n");
+
+				// check that the current learnt is the current clause of the certificate
+				bool correct_clause = true;
+				if(cls_cert[curr_cert_clause_index]->size() != learnt_clause.size())
+					correct_clause = false;
+				else{
+					for(int i = 0; i < learnt_clause.size(); i++){
+						Lit li = learnt_clause[i];
+						bool found = false;
+						for(int j = 0; j < cls_cert[curr_cert_clause_index]->size(); j++){
+							Lit lj = (*(cls_cert[curr_cert_clause_index]))[j];
+							if(li == lj){
+								found = true;
+								break;
+							}
+						}
+						if(!found){
+							correct_clause = false;
+							break;
+						}
+					}
+				}
+				if(correct_clause){
+					curr_cert_clause_index++;
+					curr_cert_dec_index = 0;
+					curr_cert_trail_index = 0;
+					// todo dont forget this line
+					//cancelUntil(0);
+					just_restarted = false;
+					// empty clause in certificate indicates we should restart
+					while(cls_cert[curr_cert_clause_index]->size() == 0){
+						printf("Restarting\n");
+						restart_now = true;
+						curr_cert_clause_index++;
+					}
+					curr_cert_dec_index = 0;
+					curr_cert_trail_index = 0;
+					just_restarted = false;
+				}
+				else{
+					printf("Warning: wrong clause derived\n");
+					curr_cert_dec_index = 0;
+					curr_cert_trail_index = 0;
+					restart_now = true;
+				}
+			}
 
             if (learnt_clause.size() == 1){
                 unit_assumptions.push(learnt_clause[0]);
@@ -1071,7 +1310,16 @@ lbool Solver::search(int nof_conflicts)
 
                 assert (confl != CRef_Undef);
                 //printf("------------------------------------\n");
-                getDecisions(confl, decision_clause);
+                getDecisions(confl, decision_clause, learnt_clause[0]);
+                /*
+                if(verification_mode){
+                	printf("(");
+					for (int i = 0; i < decision_clause.size(); i++){
+					  printf("%s%d ", sign(decision_clause[i])?"-":"", var(decision_clause[i]) + 1);
+					}
+					printf(")");
+					printf("\n-----------------------\n");
+                }*/
                 //printf("Deps: ");
                 //for(int i = 0; i < decision_clause.size(); i++)
                 //	printf("%d ", var(decision_clause[i]));
@@ -1128,6 +1376,16 @@ lbool Solver::search(int nof_conflicts)
             }else{
                 //CRef cr = ca.alloc(learnt_clause, true);
 
+                getDecisions(learnt_clause, decision_clause);
+                /*
+                if(verification_mode){
+					printf("(");
+					for (int i = 0; i < decision_clause.size(); i++){
+					  printf("%s%d ", sign(decision_clause[i])?"-":"", var(decision_clause[i]) + 1);
+					}
+					printf(")");
+					printf("\n-----------------------\n");
+				}*/
                 cancelUntil(backtrack_level);
 
 #if BRANCHING_HEURISTIC == CHB
@@ -1136,7 +1394,7 @@ lbool Solver::search(int nof_conflicts)
 
                 //vec<Lit> decision_clause;
                 int size = learnt_clause.size();
-                getDecisions(learnt_clause, decision_clause);
+                //todo getDecisions used to be here, now 5 lines up
                 //assert (confl != CRef_Undef);
                 //getDecisions(confl, decision_clause);
                 for (int i = 0; i < decision_clause.size(); i++)
@@ -1153,6 +1411,8 @@ lbool Solver::search(int nof_conflicts)
 #endif
                 uncheckedEnqueue(learnt_clause[0], cr);
             }
+
+
 
 #if BRANCHING_HEURISTIC == VSIDS
             varDecayActivity();
@@ -1174,14 +1434,30 @@ lbool Solver::search(int nof_conflicts)
                            (int)dec_vars - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]), nClauses(), (int)clauses_literals, 
                            (int)max_learnts, nLearnts(), (double)learnts_literals/nLearnts(), progressEstimate()*100);
             }
+            /*
+            if (always_restart){ // todo figure out if necessary...
+				// Reached bound on number of conflicts:
+            	printf("Warning always restart....\n");
+				restart_now = false;
+				if(generate_certificate && !just_restarted){
+					fprintf(certificate_clauses_out, "0 0 0\n");
+					just_restarted = true;
+				}
+				progress_estimate = progressEstimate();
+				cancelUntil(0);
+				return l_Undef;
+            }
+            */
 
         }else{
             // NO CONFLICT
             if (restart_now || (nof_conflicts >= 0 && conflictC >= nof_conflicts || !withinBudget())){
                 // Reached bound on number of conflicts:
             	restart_now = false;
-            	if(generate_certificate)
-            		fprintf(certificate_out, "0\n");
+            	if(generate_certificate && !just_restarted){
+            		fprintf(certificate_clauses_out, "0 0 0\n");
+            		just_restarted = true;
+            	}
                 progress_estimate = progressEstimate();
                 cancelUntil(0);
                 return l_Undef; }
@@ -1190,9 +1466,9 @@ lbool Solver::search(int nof_conflicts)
             if (decisionLevel() == 0 && !simplify())
                 return l_False;
 
-            if (learnts.size()-nAssigns() >= max_learnts) {
+            if (learnts.size()-nAssigns() >= max_learnts && !never_gc) {
                 // Reduce the set of learnt clauses:
-            	//printf("reduce %f\n", max_learnts);
+            	printf("reduce %f\n", max_learnts);
                 reduceDB();
 #if RAPID_DELETION
                 max_learnts += 500;
@@ -1259,10 +1535,12 @@ lbool Solver::search(int nof_conflicts)
                 		}
                 	}
                     vec<Lit> clause;
-                    for (int i = 0; i < nVars(); i++)
-                      clause.push(mkLit(i,false));
+                    for (int i = 0; i < nVars(); i++){
+                    	if(assigns[i] != l_Undef) // some lits not in the trail
+                    		clause.push(mkLit(i,false));
+                    }
                     vec<Lit> decisions;
-
+                    printf("Last call\n");
                     getDecisions(clause, decisions);
                     for (int i = 0; i < decisions.size(); i++)
                       lsr_final.push(var(decisions[i]));
@@ -1333,7 +1611,6 @@ lbool Solver::solve_()
     model.clear();
     conflict.clear();
     if (!ok) return l_False;
-
     solves++;
 
 #if RAPID_DELETION

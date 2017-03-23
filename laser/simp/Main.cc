@@ -154,9 +154,10 @@ int main(int argc, char** argv)
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
         // certificate generation
         StringOption lsr_file_in("LASER","lsr-in","Used to create a certificate for an lsr, generate with -lsr-out (zero-based).\n");
-        StringOption lsr_certificate_file_out("LASER","lsr-cert-out","File to output the decision literal sequence witnessing a backdoor (one-based).\n");
+        StringOption lsr_certificate_clauses_file_out("LASER","lsr-cert-cls-out","File to output the clauses sequence witnessing a backdoor (one-based).\n");
+
         // certificate validation
-        StringOption lsr_certificate_file_in("LASER","lsr-cert-in","File containing the decision literal sequence witnessing a backdoor (one-based).\n");
+        StringOption lsr_certificate_clauses_file_in("LASER","lsr-cert-cls-in","File containing the clause sequence witnessing a backdoor (one-based).\n");
 
 
         // LLL expt setup:
@@ -218,9 +219,8 @@ int main(int argc, char** argv)
         parse_DIMACS(in, S);
 
         // lsr verification files
-		if(lsr_certificate_file_out || lsr_file_in){
-			S.generate_certificate = true;
-			S.lsr_in.growTo(S.nVars(), 0);
+        if(lsr_file_in){
+        	S.lsr_in.growTo(S.nVars(), 0);
 			const char* file_name = lsr_file_in;
 			FILE* lsr_in = fopen (file_name, "r");
 			if (lsr_in == NULL)
@@ -230,34 +230,54 @@ int main(int argc, char** argv)
 				S.lsr_in[i] = true;
 			}
 			fclose(lsr_in);
-			const char* file_name2 = lsr_certificate_file_out;
-			S.certificate_out = fopen(file_name2, "wb");
+        }
+
+		if(lsr_file_in && lsr_certificate_clauses_file_out){
+			S.generate_certificate = true;
+			const char* file_name3 = lsr_certificate_clauses_file_out;
+			S.certificate_clauses_out = fopen(file_name3, "wb");
 		}
         
-		if(lsr_certificate_file_in){
+		if(lsr_certificate_clauses_file_in){
+			int i;
 			S.verification_mode = true;
-			const char* file_name = lsr_certificate_file_in;
-			FILE* cert_in = fopen (file_name, "r");
-			if (cert_in == NULL)
-				printf("ERROR! Could not open file: %s\n", file_name), exit(1);
-			int i = 0;
-			int count = -1;
-			while (fscanf(cert_in, "%d", &i) == 1) {
+			const char* file_name2 = lsr_certificate_clauses_file_in;
+			FILE* cls_in = fopen (file_name2, "r");
+			if (cls_in == NULL)
+				printf("ERROR! Could not open file: %s\n", file_name2), exit(1);
+			int base_clause_mode = 0; // if false, reading decisions needed for the clause
+			vec<Lit>* c = new vec<Lit>;
+			vec<Lit>* cls_decisions = new vec<Lit>;
+			while (fscanf(cls_in, "%d", &i) == 1) {
 				if(i == 0){
-					// todo restart?
-					S.restart_indices.growTo(S.replay_lits.size(), 0);
-					S.restart_indices[count] = 1;
+					if(base_clause_mode == 0){
+						S.cls_cert.push(c);
+						c = new vec<Lit>;
+					}
+					else if(base_clause_mode == 1){ // TODO flip! this one should be dec
+						S.dec_cert.push(c);
+						c = new vec<Lit>;
+					}
+					else{
+						S.trail_cert.push(c);
+						c = new vec<Lit>;
+					}
+					base_clause_mode++;
+					base_clause_mode = base_clause_mode % 3;
 				}
 				else{
 					Var v = abs(i) - 1;
-				    Lit l = i > 0 ? mkLit(v) : ~mkLit(v);
-					S.replay_lits.push(l);
-					count++;
+					Lit l = i > 0 ? mkLit(v) : ~mkLit(v);
+					c->push(l);
 				}
-
 			}
-			fclose(cert_in);
+			S.curr_cert_clause_index = 0;
+			S.curr_cert_dec_index = 0;
+			S.curr_cert_trail_index = 0;
+			fclose(cls_in);
+
 		}
+
 
         if(S.nVars() == 0 && S.nClauses() == 0){ // EDXXX
         	printf("TRIVIAL\n");
@@ -283,6 +303,7 @@ int main(int argc, char** argv)
 
 
         S.eliminate(true);
+
 
         double simplified_time = cpuTime();
         if (S.verbosity > 0){
