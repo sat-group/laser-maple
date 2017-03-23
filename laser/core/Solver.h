@@ -144,6 +144,7 @@ public:
 
     bool always_restart;
     bool never_restart;
+    bool clause_and_conflict_side_lsr;
 
     // Statistics: (read-only member variable)
     //
@@ -173,6 +174,11 @@ public:
         //strcpy(lsr_filename, file);
         lsr_filename = file;
     }
+
+    void setAllDecisionsFilename(const char * file){
+		//strcpy(lsr_filename, file);
+		all_decisions_filename = file;
+	}
 
     void setLSR(bool flag){
         lsr_num = flag;
@@ -238,6 +244,8 @@ protected:
     vec<Var> lsr_final;
 
     const char * lsr_filename;
+    const char * all_decisions_filename;
+    vec<char> all_decisions;
     bool lsr_num;
 
 

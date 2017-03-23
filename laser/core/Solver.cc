@@ -58,6 +58,10 @@ static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward m
 static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
 static BoolOption    opt_never_restart      (_cat, "never-restart",        "Restart never.", false);
 
+// lsr computation types
+static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", false);
+
+
 
 //=================================================================================================
 // Constructor/Destructor:
@@ -96,6 +100,7 @@ Solver::Solver() :
 
   , always_restart (opt_always_restart)
   , never_restart (opt_never_restart)
+  , clause_and_conflict_side_lsr (opt_clause_and_conflict_side_lsr)
     // Parameters (experimental):
     //
   , learntsize_adjust_start_confl (100)
@@ -135,6 +140,7 @@ Solver::Solver() :
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
+  all_decisions_filename = NULL;
   lsr_num = false;
 } 
 
@@ -169,6 +175,7 @@ Var Solver::newVar(bool sign, bool dvar)
     picked.push(0);
     conflicted.push(0);
     lsr_seen.push(0);
+    all_decisions.push(0);
     unit_lsr.push(CRef_Undef);
 #if ALMOST_CONFLICT
     almost_conflicted.push(0);
@@ -345,6 +352,8 @@ Lit Solver::pickBranchLit()
 	printf("hit %d %d \n", next, decision[next]);
 	*/
     //printf("%d\n", next);
+    if(next != var_Undef)
+    	all_decisions[next] = 1;
     return next == var_Undef ? lit_Undef : mkLit(next, rnd_pol ? drand(random_seed) < 0.5 : polarity[next]);
 }
 
@@ -517,10 +526,29 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 {
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
-  // now that decisions may start with lits, don't revisit var already in decisions
+  // now that decisions may start with lits, don't re-add var already in decisions
   for (int i = 0; i < decisions.size(); i++){
-	  lsr_seen[var(decisions[i])] = 1;
+	  seen[var(decisions[i])] = 1;
 	  lsr_toclear.push(var(decisions[i]));
+  }
+  // extra nVars condition is to allow the final SAT case to fall through
+  if(clause_and_conflict_side_lsr && clause.size() != nVars()){
+	  for(int i = 0; i < clause.size(); i++){
+		  Var v = var(clause[i]);
+		  if(!seen[v]){
+			  seen[v] = 1;
+			  lsr_toclear.push(v);
+			  decisions.push(clause[i]);
+		  }
+	  }
+		for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
+		for (int i = 0; i < decisions.size(); i++){
+			seen[var(decisions[i])] = 0;
+			//printf("dec %d\n",var(decisions[i])+1);
+		}
+
+		lsr_toclear.clear();
+	  return;
   }
 
   vec<Lit> workpool; clause.copyTo(workpool);
@@ -1289,6 +1317,16 @@ lbool Solver::solve_()
       for (int i = 0; i < lsr_final.size(); i++){
         fprintf(res_log, "%d\n",lsr_final[i]);
       }
+    }
+
+    if(all_decisions_filename != NULL){
+    	// Note: variables start at index 0
+		FILE* res_log = fopen(all_decisions_filename, "wb");
+		for (int i = 0; i < all_decisions.size(); i++){
+			if(all_decisions[i])
+				fprintf(res_log, "%d\n", i);
+		}
+
     }
 
     lsr_final.clear();

@@ -151,6 +151,8 @@ int main(int argc, char** argv)
 
         // LASER options:
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (zero-based).\n");
+        StringOption all_decisions_file("LASER","all-dec-out","Write all unique decision vars to a file (same as LS paper) (zero-based).\n");
+
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
 
         // LLL expt setup:
@@ -355,6 +357,7 @@ int main(int argc, char** argv)
 
         S.setLSR(lsr_num);
         S.setFilename(lsr_file);
+        S.setAllDecisionsFilename(all_decisions_file);
 
         lbool ret = S.solveLimited(dummy);
         
