@@ -391,8 +391,9 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
         Clause& c = ca[confl];
 
         // lsr -- grab the vars that any learnt depends upon
+        // TODO warning -- this now contains the clause itself (i = 0 instead of i = c.size()) and its dependencies, can simplify getDecisions()
         if(c.learnt()){
-        	for (int i = c.size(); i < c.rsize(); i++){
+        	for (int i = 0; i < c.rsize(); i++){
 			  if (!lsr_seen[var(c[i])]){
 				lsr_seen[var(c[i])] = 1;
 				lsr_conflict_side.push(c[i]);
@@ -522,7 +523,9 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
 }
 
-void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag)
+
+
+void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag, bool final_sat_call)
 {
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
@@ -531,35 +534,95 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 	  seen[var(decisions[i])] = 1;
 	  lsr_toclear.push(var(decisions[i]));
   }
-  // extra nVars condition is to allow the final SAT case to fall through
-  if(clause_and_conflict_side_lsr && clause.size() != nVars()){
-	  for(int i = 0; i < clause.size(); i++){
-		  Var v = var(clause[i]);
-		  if(!seen[v]){
-			  seen[v] = 1;
-			  lsr_toclear.push(v);
-			  decisions.push(clause[i]);
+  if(clause_and_conflict_side_lsr){
+	  if(!final_sat_call){
+		  for(int i = 0; i < clause.size(); i++){
+			  Var v = var(clause[i]);
+			  if(!seen[v]){
+				  seen[v] = 1;
+				  lsr_toclear.push(v);
+				  decisions.push(clause[i]);
+			  }
 		  }
+			for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
+			for (int i = 0; i < decisions.size(); i++){
+				seen[var(decisions[i])] = 0;
+				//printf("dec %d\n",var(decisions[i])+1);
+			}
+
+			lsr_toclear.clear();
 	  }
+	  else{ // for the final call to the sat case
+		assert(decisions.size() == 0);
 		for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
-		for (int i = 0; i < decisions.size(); i++){
+		for (int i = 0; i < trail.size(); i++){
 			seen[var(decisions[i])] = 0;
 			//printf("dec %d\n",var(decisions[i])+1);
-		}
+			Lit p = trail[i];
+			Var x = var(p);
+			if (assumption(x)){
+				if(print_flag){
+					printf("assumption: %d\n", x);
+				}
+				// Unit clause -- include its dependencies
+				assert (unit_lsr[x] != CRef_Undef);
+				Clause &cu = ca_lsr[unit_lsr[x]];
+				for (int i = 0; i < cu.size(); i++){
+					if (!seen[var(cu[i])]){
+						seen[var(cu[i])] = 1;
+						decisions.push(cu[i]);
+					}
+				}
+				// also include the unit literal itself
+				if(!seen[x]){
+					seen[x] = true;
+					decisions.push(p);
+				}
+			}
+			else if (reason(x) == CRef_Undef){
+				if(print_flag){
+					printf("decision: %s%d\n", sign(p)?"-":"", var(p));
+				}
+				// Decision variable on the final trail
+				if (!seen[x]){
+					seen[x] = 1;
+					decisions.push(p);
+				}
+			}
+			else {
+				// Reason is a clause
 
-		lsr_toclear.clear();
+				Clause &c = ca[reason(x)];
+				if (c.learnt()){
+					if(print_flag){
+						printf("learnt: ");
+						for (int i = 0; i < c.size(); i++){
+							printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+						}
+						printf("\n");
+						printf("ldeps: ");
+						for (int i = c.size(); i < c.rsize(); i++){
+							printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+						}
+						printf("\n");
+					}
+					// include the learnt clause itself, as well as its dependencies
+					// note: for the non-absorption approach below, i starts at c.size()
+					for (int i = 0; i < c.rsize(); i++){
+						if (!seen[var(c[i])]){
+							seen[var(c[i])] = 1;
+							decisions.push(c[i]);
+						}
+					}
+				}
+				else { // with the absorption result, I don't need to consider original clauses
+					continue;
+				}
+			}
+		}
+	  }
 	  return;
   }
-
-  // for the final call to the sat case
-  if(clause_and_conflict_side_lsr){
-	  for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
-		for (int i = 0; i < decisions.size(); i++){
-			seen[var(decisions[i])] = 0;
-			//printf("dec %d\n",var(decisions[i])+1);
-		}
-  }
-
 
   vec<Lit> workpool; clause.copyTo(workpool);
   while (workpool.size() > 0){
@@ -1039,7 +1102,6 @@ lbool Solver::search(int nof_conflicts)
                     seen[lsr_final[i]] = 0;
 
                   //printLSR();
-                
                   return l_False;
                 }
 
@@ -1184,7 +1246,7 @@ lbool Solver::search(int nof_conflicts)
                       clause.push(mkLit(i,false));
                     vec<Lit> decisions;
 
-                    getDecisions(clause, decisions);
+                    getDecisions(clause, decisions, false, true);
                     for (int i = 0; i < decisions.size(); i++)
                       lsr_final.push(var(decisions[i]));
 

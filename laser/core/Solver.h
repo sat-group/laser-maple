@@ -249,7 +249,7 @@ protected:
     bool lsr_num;
 
 
-    void getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag=false);
+    void getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag=false, bool final_sat_call=false);
     void getDecisions(CRef cr, vec<Lit>& decisions){
         Clause& c = ca[cr];
         vec<Lit> clause;
@@ -260,7 +260,7 @@ protected:
         //	printf("%s%d ", sign(clause[i])?"-": "", var(clause[i]));
         //printf("\n");
 
-        getDecisions(clause, decisions, false);
+        getDecisions(clause, decisions, false, false);
     }
 
     void printLSR(){
