@@ -434,6 +434,16 @@ Lit Solver::pickBranchLit()
     //printf("%d\n", next);
     if(next != var_Undef)
     	all_decisions[next] = 1;
+    if(verification_mode){
+    	if(next != var_Undef){
+    		printf("Verification failed, needed to branch on a variable after exhausting final trail\n");
+    		exit(1);
+    	}
+    	else
+    		printf("Verification succeeded\n");
+    }
+
+
     return next == var_Undef ? lit_Undef : mkLit(next, rnd_pol ? drand(random_seed) < 0.5 : polarity[next]);
 }
 
@@ -893,21 +903,27 @@ Lit Solver::checkAbsorptionStatus(){
 		cancelUntil(base_level);
 		// need to take care of units through assumptions
 		vec<Lit> cl;
+		bool clause_absorbed = false;
+
 		for(int i = 0; i < c->size(); i++){
 			Lit l = (*c)[i];
-			if(value(l) != l_True){
+			if(value(l) == l_Undef){
 				cl.push(l);
 			}
+			else if(value(l) == l_False){
+				//printf("hit\n");
+			}
+			else
+				clause_absorbed = true;
 		}
-		//i changed here something broke??
 
-		if(cl.size() == 0){
+		if(clause_absorbed){
 			printf("Clause is already implied by a unit assumption\n");
 			curr_cert_index++;
 			continue;
 		}
 
-		bool clause_absorbed = true;
+		clause_absorbed = true;
 		// find an asserting literal
 		for(int i = 0; i < cl.size(); i++){
 			cancelUntil(base_level);
@@ -977,10 +993,10 @@ Lit Solver::checkAbsorptionStatus(){
 			printf(" %s%d", sign(trail[i])?"-":"", var(trail[i])+1);
 		}
 		printf("\n");
-		if(final_sat_trail_index == final_sat_trail->size()){
-			return lit_Undef;
-		}
 		while(true){
+			if(final_sat_trail_index == final_sat_trail->size()){
+				return lit_Undef;
+			}
 			Lit l = (*final_sat_trail)[final_sat_trail_index++];
 			if(value(l) == l_Undef)
 				return l;
@@ -1405,14 +1421,18 @@ lbool Solver::search(int nof_conflicts)
                   for (int i = 0; i < c.size(); i++){
                     Var x = var(c[i]);
                     //printf(" %d", x);
+
                     seen[x] = 1;
                     lsr_final.push(x);
                   }
+
                   getDecisionsFinalUnsat(confl, decision_clause);
 
 
-                  //printf("\n");
-                  //printf("Conflict on %d\n", var(learnt_clause[0]));
+                  // don't want to add duplicates to lsr_final
+                  for (int i = 0; i < lsr_final.size(); i++){
+                	  seen[lsr_final[i]] = 1;
+                  }
                   for (int i = 0; i < decision_clause.size(); i++){
                     Var x = var(decision_clause[i]);
                     if (!seen[x]){
@@ -1426,6 +1446,9 @@ lbool Solver::search(int nof_conflicts)
                     seen[lsr_final[i]] = 0;
 
                   //printLSR();
+                  if(verification_mode){
+						printf("Verification succeeded\n");
+				  }
                   return l_False;
                 }
 
