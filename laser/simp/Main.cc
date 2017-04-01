@@ -151,6 +151,8 @@ int main(int argc, char** argv)
 
         // LASER options:
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (zero-based).\n");
+        StringOption all_decisions_file("LASER","all-dec-out","Write all unique decision vars to a file (same as LS paper) (zero-based).\n");
+
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
         // certificate generation
         StringOption lsr_file_in("LASER","lsr-in","Used to create a certificate for an lsr, generate with -lsr-out (zero-based).\n");
@@ -245,25 +247,11 @@ int main(int argc, char** argv)
 			FILE* cls_in = fopen (file_name2, "r");
 			if (cls_in == NULL)
 				printf("ERROR! Could not open file: %s\n", file_name2), exit(1);
-			int base_clause_mode = 0; // if false, reading decisions needed for the clause
 			vec<Lit>* c = new vec<Lit>;
-			vec<Lit>* cls_decisions = new vec<Lit>;
 			while (fscanf(cls_in, "%d", &i) == 1) {
 				if(i == 0){
-					if(base_clause_mode == 0){
-						S.cls_cert.push(c);
-						c = new vec<Lit>;
-					}
-					else if(base_clause_mode == 1){ // TODO flip! this one should be dec
-						S.dec_cert.push(c);
-						c = new vec<Lit>;
-					}
-					else{
-						S.trail_cert.push(c);
-						c = new vec<Lit>;
-					}
-					base_clause_mode++;
-					base_clause_mode = base_clause_mode % 3;
+					S.cert.push(c);
+					c = new vec<Lit>;
 				}
 				else{
 					Var v = abs(i) - 1;
@@ -271,9 +259,7 @@ int main(int argc, char** argv)
 					c->push(l);
 				}
 			}
-			S.curr_cert_clause_index = 0;
-			S.curr_cert_dec_index = 0;
-			S.curr_cert_trail_index = 0;
+			S.curr_cert_index = 0;
 			fclose(cls_in);
 
 		}
@@ -427,6 +413,7 @@ int main(int argc, char** argv)
 
         S.setLSR(lsr_num);
         S.setFilename(lsr_file);
+        S.setAllDecisionsFilename(all_decisions_file);
 
         lbool ret = S.solveLimited(dummy);
         
