@@ -335,64 +335,9 @@ Lit Solver::pickBranchLit()
 			assert(final_sat_trail_mode);
 		}
 		else{
-			printf("Returning: %s%d\n", sign(a)?"-":"", var(a) + 1);
 			return a;
 		}
-		/*
-		// check if skipping occurs
-		while(cls_cert[curr_cert_clause_index]->size() == 0){
-			curr_cert_clause_index++;
-			curr_cert_dec_index = 0;
-			curr_cert_trail_index = 0;
-		}
-		vec<Lit>* c = cls_cert[curr_cert_clause_index];
-		vec<Lit>* decs = dec_cert[curr_cert_clause_index];
-		while(curr_cert_dec_index < decs->size()){
-			lbool b = assigns[var((*decs)[curr_cert_dec_index])];
-			Lit l = (*decs)[curr_cert_dec_index];
-			if(b == l_Undef)
-				break;
-			else if((b == l_False && !sign(l)) || (b == l_True && sign(l))){
-				printf("Warning: sign mismatch on %d\n", var(l) + 1);
-				if(just_restarted){
-					//printf("Already tried restarting. Failed.\n");
-					//exit(1);
-				}
-				curr_cert_dec_index = 0;
-				curr_cert_trail_index = 0;
-				just_restarted = true;
-				restart_immediately = true;
-				return lit_Undef;
-			}
-			else{
-				printf("Skipping %s%d (", sign(l)?"-":"",  var(l) + 1);
-				if(reason(var(l)) != CRef_Undef){
-					Clause &c = ca[reason(var(l))];
-					if (c.learnt())
-						printf("L ");
-					for (int i = 0; i < c.size(); i++){
-						printf("%s%d ", sign(c[i])?"-":"", var(c[i]) + 1);
-					}
-				}
-				printf(")\n");
-			}
-			curr_cert_dec_index++;
-		}
-		if(curr_cert_dec_index == decs->size()){
-			printf("Failed to derive current clause\n");
-			exit(1);
-		}
-		else{
-			lbool b = assigns[var((*decs)[curr_cert_dec_index])];
-			Lit l = (*decs)[curr_cert_dec_index++];
-			//if((b == l_False && !sign(l)) || (b == l_True && sign(l)))
-			//	printf("Warning: sign mismatch on %d\n", var(l));
-			printf("Picking %s%d\n", sign(l)?"-":"", var(l) + 1);
-			return l;
-		}
-		*/
 	}
-
 
     Var next = var_Undef;
 
@@ -425,13 +370,6 @@ Lit Solver::pickBranchLit()
 #endif
             next = order_heap.removeMin();
         }
-    /*for(int i = 0; i < decision.size(); i++){
-    				printf("%d ", decision[i]);
-    			}
-    			printf("\n");
-	printf("hit %d %d \n", next, decision[next]);
-	*/
-    //printf("%d\n", next);
     if(next != var_Undef)
     	all_decisions[next] = 1;
     if(verification_mode){
@@ -883,23 +821,24 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 
 Lit Solver::checkAbsorptionStatus(){
 	Lit a = lit_Undef;
-	// todo need to be careful with cancelUntil due to units....
-	printf("Warning -- if bug, dont forget units... %d %d\n", assumptions.size(), unit_assumptions.size());
+	// need to be careful with cancelUntil due to units
 	int base_level = assumptions.size() + unit_assumptions.size();
 	while(!final_sat_trail_mode && curr_cert_index < cert.size()){
 		vec<Lit>* c = cert[curr_cert_index];
 		if(c->size() == 0){
-			printf("Final sat decisions!\n");
+			//printf("Final sat decisions!\n");
 			cancelUntil(base_level);
 			final_sat_trail_mode = true;
 			final_sat_trail = cert[curr_cert_index+1];
 			break;
 		}
-		printf("Checking:");
+		/*printf("Checking:");
 		for(int i = 0; i < c->size(); i++){
 			printf(" %s%d", sign((*c)[i])?"-":"", var((*c)[i])+1);
 		}
 		printf("\n");
+		*/
+
 		cancelUntil(base_level);
 		// need to take care of units through assumptions
 		vec<Lit> cl;
@@ -918,7 +857,7 @@ Lit Solver::checkAbsorptionStatus(){
 		}
 
 		if(clause_absorbed){
-			printf("Clause is already implied by a unit assumption\n");
+			// printf("Clause is already implied by a unit assumption\n");
 			curr_cert_index++;
 			continue;
 		}
@@ -961,7 +900,7 @@ Lit Solver::checkAbsorptionStatus(){
 				}
 				else{
 					clause_absorbed = false;
-					printf("%s%d is asserting\n", sign(a)?"-":"", var(a)+1);
+					// printf("%s%d is asserting\n", sign(a)?"-":"", var(a)+1);
 					cancelUntil(base_level);
 
 					for(int j = 0; j < cl.size(); j++){
@@ -981,18 +920,19 @@ Lit Solver::checkAbsorptionStatus(){
 			}
 		}
 		if(clause_absorbed){
-			printf("Clause already absorbed, trying next.\n");
+			//printf("Clause already absorbed, trying next.\n");
 			curr_cert_index++;
 		}
 		else
 			break;
 	}
 	if(final_sat_trail_mode){
-		printf("Curr trail(%d): ", trail.size());
+		/*printf("Curr trail(%d): ", trail.size());
 		for(int i = 0; i < trail.size(); i++){
 			printf(" %s%d", sign(trail[i])?"-":"", var(trail[i])+1);
 		}
 		printf("\n");
+		*/
 		while(true){
 			if(final_sat_trail_index == final_sat_trail->size()){
 				return lit_Undef;
@@ -1004,10 +944,13 @@ Lit Solver::checkAbsorptionStatus(){
 	}
 	// final unsat case
 	else if(curr_cert_index >= cert.size()){
+		printf("this case should never be hit, as the analyzer will reach unsat before here\n");
+		exit(1);
+		/*
 		printf("Attempting to derive final conflict\n");
 		cancelUntil(0);
 		for(int i = 0; i < unit_assumptions.size(); i++){
-			printf(" %s%d", sign(unit_assumptions[i])?"-":"", var(unit_assumptions[i])+1);
+			// printf(" %s%d", sign(unit_assumptions[i])?"-":"", var(unit_assumptions[i])+1);
 			uncheckedEnqueue(unit_assumptions[i]);
 		}
 		CRef cr = propagate();
@@ -1017,6 +960,7 @@ Lit Solver::checkAbsorptionStatus(){
 		else
 			printf("Success\n");
 		return lit_Undef;
+		*/
 	}
 	else
 		return ~a;
@@ -1366,6 +1310,7 @@ lbool Solver::search(int nof_conflicts)
             vec<Lit> decision_clause;
             // analyze will now put the dependency lits from the conflict side in decision_clause
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
+            /*
             if(verification_mode){
 				printf("Learned: ");
 				for(int i = 0 ; i < learnt_clause.size(); i++){
@@ -1373,48 +1318,17 @@ lbool Solver::search(int nof_conflicts)
 				}
 				printf("\n");
             }
-            //printf("lsize: %d %d\n", learnt_clause.size(), decision_clause.size());
-            //decision_clause.clear();
+            */
             if (learnt_clause.size() == 1){
                 unit_assumptions.push(learnt_clause[0]);
-                // vec<Lit> decision_clause;
-                /*printf("Learnt unit: %s%d, %d\n", sign(learnt_clause[0])?"-":"", var(learnt_clause[0]) + 1, decisionLevel());
-                Clause& c = ca[confl];
-                for(int i = 0 ; i < c.size(); i++){
-                	printf("%s%d ", sign(c[i])?"-":"", var(c[i]) + 1);
-                }
-                printf("\n");
-                for(int i = 0 ; i < trail.size(); i++){
-					printf("%s%d@%d ", sign(trail[i])?"-":"", var(trail[i]) + 1, level(var(trail[i])));
-				}
-				printf("\n");
-				*/
                 assert (confl != CRef_Undef);
-                //printf("------------------------------------\n");
                 // if the condition is false, this is the decision level 0 conflict
                 if(!assumption(var(learnt_clause[0]))){
                 	getDecisions(learnt_clause, decision_clause);
                     assert (decision_clause.size() > 0);
                 }
-                /*
-                if(verification_mode){
-                	printf("(");
-					for (int i = 0; i < decision_clause.size(); i++){
-					  printf("%s%d ", sign(decision_clause[i])?"-":"", var(decision_clause[i]) + 1);
-					}
-					printf(")");
-					printf("\n-----------------------\n");
-                }*/
-                //printf("Deps: ");
-                //for(int i = 0; i < decision_clause.size(); i++)
-                //	printf("%d ", var(decision_clause[i]));
-                //printf("\n");
-                //printf("Unit Lit: %s%d\n", sign(learnt_clause[0])?"-":"", var(learnt_clause[0]));
-
 
                 if (assumption(var(learnt_clause[0]))){
-                  // problematic if units j < i learn the unit i, basically allowed to set a previous
-                  // unit to the wrong polarity
                   assert(unit_lsr[var(learnt_clause[0])]!=CRef_Undef);
                   Clause &c = ca_lsr[unit_lsr[var(learnt_clause[0])]];
                   //printf("Other side: ");
@@ -1445,7 +1359,6 @@ lbool Solver::search(int nof_conflicts)
                   for (int i = 0; i < lsr_final.size(); i++)
                     seen[lsr_final[i]] = 0;
 
-                  //printLSR();
                   if(verification_mode){
 						printf("Verification succeeded\n");
 				  }
