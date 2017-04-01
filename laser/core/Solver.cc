@@ -141,7 +141,8 @@ Solver::Solver() :
   , asynch_interrupt   (false)
   , generate_certificate (false)
   , verification_mode (false)
-  , curr_replay_lits_index (0)
+  , final_sat_trail_mode (false)
+  , final_sat_trail_index (0)
   , restart_now(false)
   , restart_immediately(false)
   , just_restarted(false)
@@ -329,7 +330,14 @@ Lit Solver::pickBranchLit()
 {
 	if(verification_mode){
 		// need to absorb the current clause at the given asserting literal
-		printf("TODO\n");
+		Lit a = checkAbsorptionStatus();
+		if(a == lit_Undef){
+			assert(final_sat_trail_mode);
+		}
+		else{
+			printf("Returning: %s%d\n", sign(a)?"-":"", var(a) + 1);
+			return a;
+		}
 		/*
 		// check if skipping occurs
 		while(cls_cert[curr_cert_clause_index]->size() == 0){
@@ -452,6 +460,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     Lit p     = lit_Undef;
 
     for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
+
 
     // Generate conflict clause:
     //
@@ -598,8 +607,14 @@ void Solver::getDecisionsFinalUnsat(CRef cr, vec<Lit>& decisions)
 {
 	Clause& c = ca[cr];
 	vec<Lit> clause;
-	for (int i = 0; i < c.size(); i++)
+	// add the literals in the final conflicting clause itself
+	for (int i = 0; i < c.size(); i++){
 		clause.push(c[i]);
+		if(!seen[var(c[i])]){
+			seen[var(c[i])] = 1;
+			decisions.push(c[i]);
+		}
+	}
 
   for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 
@@ -746,7 +761,7 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 		assert(decisions.size() == 0);
 		for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
 		for (int i = 0; i < trail.size(); i++){
-			seen[var(trail[i])] = 0;
+			//seen[var(trail[i])] = 0;
 			//printf("dec %d\n",var(decisions[i])+1);
 			Lit p = trail[i];
 			Var x = var(p);
@@ -817,7 +832,6 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 	  if(generate_certificate){
 		  // separate last sat call with an extra 0
 		  if(final_sat_call){
-			  printf("TODO: last SAT call certificate\n");
 			  fprintf(certificate_clauses_out, " 0\n");
 			  for(int i = 0; i < final_decisions.size(); i++)
 				  fprintf(certificate_clauses_out, "%s%d ", sign(final_decisions[i])?"-":"", var(final_decisions[i]) + 1);
@@ -834,7 +848,7 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
 			  }
 
 
-			  // if so, add the current D_c to the certificate, which will be used to generate the current clause
+			  // if so, add the current clause to the certificate, which will be used to generate the current clause
 			  if(all_lsr_clause){
 				  for (int i = 0; i < clause.size(); i++){
 					  fprintf(certificate_clauses_out, "%s%d ", sign(clause[i])?"-":"", var(clause[i]) + 1);
@@ -856,6 +870,142 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
   printf("Only conf-side-lsr for now\n");
   exit(1);
 }
+
+Lit Solver::checkAbsorptionStatus(){
+	Lit a = lit_Undef;
+	// todo need to be careful with cancelUntil due to units....
+	printf("Warning -- if bug, dont forget units... %d %d\n", assumptions.size(), unit_assumptions.size());
+	int base_level = assumptions.size() + unit_assumptions.size();
+	while(!final_sat_trail_mode && curr_cert_index < cert.size()){
+		vec<Lit>* c = cert[curr_cert_index];
+		if(c->size() == 0){
+			printf("Final sat decisions!\n");
+			cancelUntil(base_level);
+			final_sat_trail_mode = true;
+			final_sat_trail = cert[curr_cert_index+1];
+			break;
+		}
+		printf("Checking:");
+		for(int i = 0; i < c->size(); i++){
+			printf(" %s%d", sign((*c)[i])?"-":"", var((*c)[i])+1);
+		}
+		printf("\n");
+		cancelUntil(base_level);
+		// need to take care of units through assumptions
+		vec<Lit> cl;
+		for(int i = 0; i < c->size(); i++){
+			Lit l = (*c)[i];
+			if(value(l) != l_True){
+				cl.push(l);
+			}
+		}
+		//i changed here something broke??
+
+		if(cl.size() == 0){
+			printf("Clause is already implied by a unit assumption\n");
+			curr_cert_index++;
+			continue;
+		}
+
+		bool clause_absorbed = true;
+		// find an asserting literal
+		for(int i = 0; i < cl.size(); i++){
+			cancelUntil(base_level);
+			a = cl[i];
+			for(int j = 0; j < cl.size(); j++){
+				if(j == i)
+					continue;
+				Lit l = cl[j];
+
+				if(value(l) == l_Undef){
+					newDecisionLevel();
+					uncheckedEnqueue(~l);
+				}
+			}
+
+			CRef cr = propagate();
+			if(cr == CRef_Undef && value(a) == l_Undef){
+				newDecisionLevel();
+				uncheckedEnqueue(~a);
+				CRef cr = propagate();
+				// should not happen
+				if(cr == CRef_Undef){
+					printf("Clause at index %d is not 1-provable? Missing clause bug?\n", curr_cert_index);
+					printf("Units(%d): ", unit_assumptions.size());
+					for(int i = 0; i < unit_assumptions.size(); i++){
+						printf(" %s%d", sign(unit_assumptions[i])?"-":"", var(unit_assumptions[i])+1);
+					}
+					printf("\n");
+					printf("Curr trail(%d): ", trail.size());
+					for(int i = 0; i < trail.size(); i++){
+						printf(" %s%d@%d", sign(trail[i])?"-":"", var(trail[i])+1, level(var(trail[i])));
+					}
+					printf("\n");
+					exit(1);
+				}
+				else{
+					clause_absorbed = false;
+					printf("%s%d is asserting\n", sign(a)?"-":"", var(a)+1);
+					cancelUntil(base_level);
+
+					for(int j = 0; j < cl.size(); j++){
+						if(j == i)
+							continue;
+						Lit l = cl[j];
+						if(value(l) == l_Undef){
+							newDecisionLevel();
+							uncheckedEnqueue(~l);
+						}
+					}
+					propagate();
+
+					assert(value(a) == l_Undef);
+					break;
+				}
+			}
+		}
+		if(clause_absorbed){
+			printf("Clause already absorbed, trying next.\n");
+			curr_cert_index++;
+		}
+		else
+			break;
+	}
+	if(final_sat_trail_mode){
+		printf("Curr trail(%d): ", trail.size());
+		for(int i = 0; i < trail.size(); i++){
+			printf(" %s%d", sign(trail[i])?"-":"", var(trail[i])+1);
+		}
+		printf("\n");
+		if(final_sat_trail_index == final_sat_trail->size()){
+			return lit_Undef;
+		}
+		while(true){
+			Lit l = (*final_sat_trail)[final_sat_trail_index++];
+			if(value(l) == l_Undef)
+				return l;
+		}
+	}
+	// final unsat case
+	else if(curr_cert_index >= cert.size()){
+		printf("Attempting to derive final conflict\n");
+		cancelUntil(0);
+		for(int i = 0; i < unit_assumptions.size(); i++){
+			printf(" %s%d", sign(unit_assumptions[i])?"-":"", var(unit_assumptions[i])+1);
+			uncheckedEnqueue(unit_assumptions[i]);
+		}
+		CRef cr = propagate();
+		if(cr == CRef_Undef){
+			printf("Fail\n");
+		}
+		else
+			printf("Success\n");
+		return lit_Undef;
+	}
+	else
+		return ~a;
+}
+
 
 // Check if 'p' can be removed. 'abstract_levels' is used to abort early if the algorithm is
 // visiting literals at levels that cannot be removed later.
@@ -1200,6 +1350,13 @@ lbool Solver::search(int nof_conflicts)
             vec<Lit> decision_clause;
             // analyze will now put the dependency lits from the conflict side in decision_clause
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
+            if(verification_mode){
+				printf("Learned: ");
+				for(int i = 0 ; i < learnt_clause.size(); i++){
+					printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]) + 1);
+				}
+				printf("\n");
+            }
             //printf("lsize: %d %d\n", learnt_clause.size(), decision_clause.size());
             //decision_clause.clear();
             if (learnt_clause.size() == 1){
@@ -1408,6 +1565,9 @@ lbool Solver::search(int nof_conflicts)
             if (next == lit_Undef){
                 // New variable decision:
                 decisions++;
+                //if(verification_mode)
+                //	checkAbsorptionStatus();
+
                 next = pickBranchLit();
                 if (restart_immediately){
 					// Reached bound on number of conflicts:

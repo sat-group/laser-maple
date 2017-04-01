@@ -239,7 +239,10 @@ public:
 
     // lsr certificate verification
     bool verification_mode;
-    int curr_replay_lits_index;
+    bool final_sat_trail_mode;
+    vec<Lit>* final_sat_trail;
+    int final_sat_trail_index;
+
     vec<Lit> replay_lits;
 
     vec< vec<Lit>* > cert;
@@ -278,6 +281,7 @@ protected:
         //printf("\n");
         getDecisions(clause, decisions, false, false);
     }
+    Lit checkAbsorptionStatus();
 
     void printLSR(){
           printf("===============================================================================\n");
