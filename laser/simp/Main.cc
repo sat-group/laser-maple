@@ -161,13 +161,6 @@ int main(int argc, char** argv)
         // certificate validation
         StringOption lsr_certificate_clauses_file_in("LASER","lsr-cert-cls-in","File containing the clause sequence witnessing a backdoor (one-based).\n");
 
-
-        // LLL expt setup:
-        BoolOption   probabilistic_lll_experiment("LASER","prob-lll-expt","Run the probabilistic LLL expt.\n",false);
-        DoubleOption probabilistic_lll_k("LASER","prob-lll-k","Percentage of variables to pick.\n", 0, DoubleRange(0, true, 1, true));
-        IntOption    probabilistic_lll_iters("LASER", "prob-lll-iters","Number of instances to generate.\n", 100, IntRange(1, INT32_MAX));
-        IntOption    probabilistic_lll_bias_function("MAIN", "prob-lll-bias",   "Choose the bias function for picking variables (0=high degree, 1=random).", 0, IntRange(0, 1));
-
         parseOptions(argc, argv, true);
         
         SimpSolver  S;
@@ -316,80 +309,6 @@ int main(int argc, char** argv)
             exit(0);
         }
 
-
-        if(probabilistic_lll_experiment){ // EDXXX
-        	// check that k was given
-        	if(probabilistic_lll_k < 0.000001){
-        		printf("k not given, or equal to zero\n");
-        		exit(1);
-        	}
-        	float k = (float) probabilistic_lll_k;
-        	int max_iters = (int) probabilistic_lll_iters;
-        	int target_size = (int) (k * S.nVars());
-        	vec<int> check_bias;
-			check_bias.growTo(S.nVars(), 0);
-			if(S.verbosity > 0)
-				printf("Setting up probabilistic analysis with k = %f and iters = %d\n", k, max_iters);
-
-			if(probabilistic_lll_bias_function == 0)
-			{
-				// bias favoring high degree
-				vec<int> num_occs;
-				S.numOccsForVars(num_occs);
-
-				int initial_sum = 0;
-				for(int i = 0; i < num_occs.size(); i++)
-					initial_sum += num_occs[i];
-				//printf("init: %d\n", initial_sum);
-
-				vec<int> chosen; // the vars to be set as decision vars and tested
-
-
-				for(int iter = 0; iter < max_iters; iter++){
-					chosen.clear();
-					weighted_choice(num_occs, chosen, target_size, initial_sum);
-					if(chosen.size() == 0)
-						printf("Trivial\n");
-					else{
-						for(int i = 0; i < chosen.size(); i++){
-							printf("%d ", chosen[i]);
-							check_bias[ chosen[i] ] += 1;
-						}
-						printf("\n");
-					}
-				}
-				//bias check
-				//printf("Checking Bias\n");
-				//for(int i = 0; i < S.nVars(); i++){
-				//	printf("%d %d %d\n", i, num_occs[i], check_bias[i]);
-				//}
-			}
-			else if(probabilistic_lll_bias_function == 1){
-				// random
-				std::srand(time(0));
-				std::vector<unsigned int> indices(S.nVars());
-				std::iota(indices.begin(), indices.end(), 0);
-				for(int iter = 0; iter < max_iters; iter++){
-					std::random_shuffle(indices.begin(), indices.end());
-					for(int i = 0; i < target_size; i++){
-						printf("%d ", indices[i]);
-						check_bias[ indices[i] ] += 1;
-					}
-					printf("\n");
-				}
-
-				//bias check
-				//printf("Checking Bias\n");
-				//for(int i = 0; i < S.nVars(); i++){
-				//	printf("%d %d\n", i, check_bias[i]);
-				//}
-			}
-
-
-
-			exit(0);
-        }
-
         vec<Lit> dummy;
         if (assumptions) {
             const char* file_name = assumptions;
@@ -404,7 +323,6 @@ int main(int argc, char** argv)
             }
             fclose(assertion_file);
         }
-
 
 
         for( int i = 0; i < dummy.size(); i++) {
