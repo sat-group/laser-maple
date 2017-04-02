@@ -2,6 +2,7 @@
 
 maplesat="./maplesat"
 name=$1
+
 bb="-backbone-file=${1}.backbone"
 
 echo "-------------"
