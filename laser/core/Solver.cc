@@ -157,6 +157,7 @@ Solver::Solver() :
   , total_clause_lsr_weight(0)
   , num_backbone_flips(0)
   , num_backbone_subsumed_clauses(0)
+  , backbone_logging(false)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
