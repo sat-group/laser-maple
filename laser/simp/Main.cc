@@ -276,6 +276,7 @@ int main(int argc, char** argv)
         	S.structure_logging = true;
 			S.backbone_logging = true;
         	S.backbone.growTo(S.nVars(), 0);
+        	S.backbone_prev_polarity.growTo(S.nVars(), 2);
 			const char* file_name = backbone_file;
 			FILE* backbone_in = fopen (file_name, "r");
 			if (backbone_in == NULL)
@@ -440,10 +441,17 @@ int main(int argc, char** argv)
 				else
 					printf("Gini failed\n");
 
-
+        	}
+        	if(S.backbone_logging){
+        		int backbone_size = 0;
+        		for(int i = 0; i < S.backbone.size(); i++){
+        			if(S.backbone[i] != 0)
+        				backbone_size++;
+        		}
+        		printf("NormalizedBackboneFlips %f\n", S.num_backbone_flips / float(backbone_size));
+        		printf("NormalizedBackboneSubsumedClauses %f\n", S.num_backbone_subsumed_clauses / float(backbone_size));
 
         	}
-
         }
         if(S.compute_avg_clause_lsr){
         	printf("AvgClauseLSR %f\n", S.total_clause_lsr_weight / S.all_learnts);

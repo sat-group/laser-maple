@@ -263,6 +263,10 @@ public:
     vec<uint64_t> cmty_picks;
     vec<double> cmty_clauses;
     vec<int> backbone; // 0 -- not, 1 -- positive lit, 2 -- negative lit
+    vec<char> backbone_prev_polarity; // 0 -- not sign(), 1 -- sign(), 2 -- never set
+    int num_backbone_flips;
+    int num_backbone_subsumed_clauses;
+
     bool compute_avg_clause_lsr;
     int all_learnts;
     double total_clause_lsr_weight;

@@ -155,6 +155,8 @@ Solver::Solver() :
   , compute_avg_clause_lsr(opt_average_clause_lsr)
   , all_learnts(0)
   , total_clause_lsr_weight(0)
+  , num_backbone_flips(0)
+  , num_backbone_subsumed_clauses(0)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
@@ -1056,6 +1058,20 @@ void Solver::analyzeFinal(Lit p, vec<Lit>& out_conflict)
 void Solver::uncheckedEnqueue(Lit p, CRef from)
 {
     assert(value(p) == l_Undef);
+    if(backbone_logging){
+    	// if p is a backbone, check if its being flipped
+    	Var x = var(p);
+    	if(backbone[x] != 0){
+    		int new_bb_pol;
+    		if(!sign(p))
+    			new_bb_pol = 0;
+    		else
+    			new_bb_pol = 1;
+    		if(backbone_prev_polarity[x] != new_bb_pol)
+    			num_backbone_flips++;
+    		backbone_prev_polarity[x] = new_bb_pol;
+    	}
+    }
     picked[var(p)] = conflicts;
 #if ANTI_EXPLORATION
     uint64_t age = conflicts - canceled[var(p)];
@@ -1326,6 +1342,20 @@ lbool Solver::search(int nof_conflicts)
             		cmty_clauses[cmty] = cmty_clauses[cmty] + (float(1) / s);
             	}
             }
+            if(backbone_logging){
+				// if any of the literals in the clause are in the backbone,
+            	// then the backbone lit would subsume it
+            	for(int i = 0; i < learnt_clause.size(); i++){
+            		Lit l = learnt_clause[i];
+            		Var x = var(l);
+            		if(backbone[x] != 0){
+            			if((sign(l) && backbone[x] == -1) || (!sign(l) && backbone[x] == 1)){
+            				num_backbone_subsumed_clauses++;
+            				break;
+            			}
+            		}
+            	}
+			}
 
 
             /*
