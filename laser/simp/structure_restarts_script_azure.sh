@@ -1,6 +1,6 @@
 #!/bin/bash
 
-maplesat="/home/ezulkosk/backdoors_benchmarks/laser-maple-structure/laser/simp/maplesat"
+maplesat="/home/ezulkosk/laser-maple-structure/laser/simp/maplesat"
 
 base_dir=$1
 name=$2
