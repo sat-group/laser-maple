@@ -124,6 +124,32 @@ void weighted_choice(vec<int>& num_occs, vec<int>& chosen, int target_size, int 
 
 }
 
+
+double gini(vec<double>& vals){
+	// compute gini coefficient of normalized picks
+	for(int i = 0; i < vals.size() - 1; i++){
+		for(int j = i + 1; j < vals.size(); j++){
+			if(vals[i] > vals[j]){
+				double temp = vals[i];
+				vals[i] = vals[j];
+				vals[j] = temp;
+			}
+		}
+	}
+	double height = 0;
+	double area = 0;
+	double fair_area = 0;
+	for(int i = 0; i < vals.size(); i++){
+		height += vals[i];
+		area += height - (vals[i] / 2);
+	}
+	fair_area = height * (float(vals.size()) / 2);
+	if(fair_area != 0)
+		return (fair_area - area) / fair_area;
+	else
+		return -1;
+}
+
 //=================================================================================================
 // Main:
 
@@ -154,12 +180,18 @@ int main(int argc, char** argv)
         StringOption all_decisions_file("LASER","all-dec-out","Write all unique decision vars to a file (same as LS paper) (zero-based).\n");
 
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
+
         // certificate generation
         StringOption lsr_file_in("LASER","lsr-in","Used to create a certificate for an lsr, generate with -lsr-out (zero-based).\n");
         StringOption lsr_certificate_clauses_file_out("LASER","lsr-cert-cls-out","File to output the clauses sequence witnessing a backdoor (one-based).\n");
 
         // certificate validation
         StringOption lsr_certificate_clauses_file_in("LASER","lsr-cert-cls-in","File containing the clause sequence witnessing a backdoor (one-based).\n");
+
+        // structure logging
+        StringOption cmty_file("LASER","cmty-file", "var+cmty pairs, where vars should be 0 based");
+        StringOption backbone_file("LASER","backbone-file", "backbone literals (one-based)");
+
 
         parseOptions(argc, argv, true);
         
@@ -212,6 +244,52 @@ int main(int argc, char** argv)
         S.setDecisionVarsList(decision_vars);
 
         parse_DIMACS(in, S);
+
+
+        // maps vars to cmtys
+		if(cmty_file){
+			S.structure_logging = true;
+			S.cmty_logging = true;
+			S.var_cmty.growTo(S.nVars(), -1);
+			FILE* cfile = fopen(cmty_file, "r");
+			if (cfile == NULL)
+				fprintf(stderr, "could not open file %s\n", (const char*) cfile), exit(1);
+			int v;
+			int c;
+			//Zero-based
+			int largest_cmty_index = -1;
+			while (fscanf(cfile, "%d %d\n", &v, &c) == 2){
+				S.var_cmty[v] = c;
+				if(c > largest_cmty_index){
+					largest_cmty_index = c;
+					S.cmty_picks.growTo(largest_cmty_index + 1, 0);
+					S.cmty_size.growTo(largest_cmty_index + 1, 0);
+					S.cmty_clauses.growTo(largest_cmty_index + 1, 0);
+				}
+				S.cmty_size[c] = S.cmty_size[c] + 1;
+			}
+			fclose(cfile);
+		}
+
+        // lsr verification files
+        if(backbone_file){
+        	S.structure_logging = true;
+			S.backbone_logging = true;
+        	S.backbone.growTo(S.nVars(), 0);
+			const char* file_name = backbone_file;
+			FILE* backbone_in = fopen (file_name, "r");
+			if (backbone_in == NULL)
+				printf("ERROR! Could not open file: %s\n", file_name), exit(1);
+			int i = 0;
+			while (fscanf(backbone_in, "%d", &i) == 1) {
+				Var v = abs(i) - 1;
+				if(i > 0)
+					S.backbone[v] = 1;
+				else
+					S.backbone[v] = -1;
+			}
+			fclose(backbone_in);
+        }
 
         // lsr verification files
         if(lsr_file_in){
@@ -335,6 +413,42 @@ int main(int argc, char** argv)
 
         lbool ret = S.solveLimited(dummy);
         
+        if(S.structure_logging){
+        	if(S.cmty_logging){
+        		// compute normalized pick values for each cmty
+        		vec<double> normalized_picks;
+        		vec<double> normalized_cmty_clauses;
+        		for(int i = 0; i < S.cmty_size.size(); i++){
+        			if(S.cmty_size[i] != 0){
+        				normalized_picks.push((float(S.cmty_picks[i])) / S.cmty_size[i]);
+        			}
+        		}
+        		for(int i = 0; i < S.cmty_size.size(); i++){
+					if(S.cmty_size[i] != 0){
+						normalized_cmty_clauses.push((float(S.cmty_clauses[i])) / S.cmty_size[i]);
+					}
+        		}
+        		double gini_normalized_picks = gini(normalized_picks);
+        		if(gini_normalized_picks >= 0)
+        			printf("GiniNormalizedPicks %f\n", gini_normalized_picks);
+        		else
+        			printf("Gini failed\n");
+
+        		double gini_normalized_clauses = gini(normalized_cmty_clauses);
+				if(normalized_cmty_clauses >= 0)
+					printf("GiniNormalizedClauses %f\n", gini_normalized_clauses);
+				else
+					printf("Gini failed\n");
+
+
+
+        	}
+
+        }
+        if(S.compute_avg_clause_lsr){
+        	printf("AvgClauseLSR %f\n", S.total_clause_lsr_weight / S.all_learnts);
+        }
+
         if (S.verbosity > 0){
             printStats(S);
             printf("\n"); }

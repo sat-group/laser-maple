@@ -63,6 +63,9 @@ static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove c
 // lsr computation types
 static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", false);
 
+// structure logging
+static BoolOption   opt_average_clause_lsr("LASER","avg-clause-lsr","For each learnt, record its lsr size, compute the average.\n",false);
+
 
 
 //=================================================================================================
@@ -147,6 +150,11 @@ Solver::Solver() :
   , restart_immediately(false)
   , just_restarted(false)
   , never_gc(opt_never_gc)
+  , structure_logging(false)
+  , cmty_logging(false)
+  , compute_avg_clause_lsr(opt_average_clause_lsr)
+  , all_learnts(0)
+  , total_clause_lsr_weight(0)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
@@ -470,8 +478,8 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     int i, j;
     out_learnt.copyTo(analyze_toclear);
     if (ccmin_mode == 2){
-    	printf("Exiting -- ccmin still broken for lsr\n");
-    	exit(1);
+    	//printf("Exiting -- ccmin still broken for lsr\n");
+    	//exit(1);
         uint32_t abstract_level = 0;
         for (i = 1; i < out_learnt.size(); i++)
             abstract_level |= abstractLevel(var(out_learnt[i])); // (maintain an abstraction of levels involved in conflict)
@@ -481,8 +489,8 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
                 out_learnt[j++] = out_learnt[i];
         
     }else if (ccmin_mode == 1){
-    	printf("Exiting -- did not handle ccmin mode for lsr\n");
-    	exit(1);
+    	//printf("Exiting -- did not handle ccmin mode for lsr\n");
+    	//exit(1);
         for (i = j = 1; i < out_learnt.size(); i++){
             Var x = var(out_learnt[i]);
 
@@ -1310,6 +1318,16 @@ lbool Solver::search(int nof_conflicts)
             vec<Lit> decision_clause;
             // analyze will now put the dependency lits from the conflict side in decision_clause
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
+
+            if(cmty_logging){
+            	int s = learnt_clause.size();
+            	for(int i = 0; i < s; i++){
+            		int cmty = var_cmty[var(learnt_clause[i])];
+            		cmty_clauses[cmty] = cmty_clauses[cmty] + (float(1) / s);
+            	}
+            }
+
+
             /*
             if(verification_mode){
 				printf("Learned: ");
@@ -1365,6 +1383,8 @@ lbool Solver::search(int nof_conflicts)
                   return l_False;
                 }
 
+
+
                 setAssumption(var(learnt_clause[0]), true);
 
                 CRef cr = ca_lsr.alloc(decision_clause, false);
@@ -1416,6 +1436,10 @@ lbool Solver::search(int nof_conflicts)
                 uncheckedEnqueue(learnt_clause[0], cr);
             }
 
+            if(compute_avg_clause_lsr){
+				all_learnts++;
+				total_clause_lsr_weight += decision_clause.size();
+			}
 
 
 #if BRANCHING_HEURISTIC == VSIDS
@@ -1505,6 +1529,15 @@ lbool Solver::search(int nof_conflicts)
                 //	checkAbsorptionStatus();
 
                 next = pickBranchLit();
+                if(structure_logging){
+                	if(cmty_logging){
+                		int cmty = var_cmty[var(next)];
+                		cmty_picks[cmty] = cmty_picks[cmty] + 1;
+
+                	}
+
+                }
+
                 if (restart_immediately){
 					// Reached bound on number of conflicts:
                 	printf("Preemptive restart\n");

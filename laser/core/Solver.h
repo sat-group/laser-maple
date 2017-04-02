@@ -253,6 +253,21 @@ public:
     bool restart_immediately;
     bool just_restarted;
 
+    // structure input
+    bool structure_logging;
+    bool cmty_logging;
+    bool backbone_logging;
+
+    vec<uint64_t> var_cmty;
+    vec<uint64_t> cmty_size;
+    vec<uint64_t> cmty_picks;
+    vec<double> cmty_clauses;
+    vec<int> backbone; // 0 -- not, 1 -- positive lit, 2 -- negative lit
+    bool compute_avg_clause_lsr;
+    int all_learnts;
+    double total_clause_lsr_weight;
+
+
 protected:
 
     // LASER misc:
