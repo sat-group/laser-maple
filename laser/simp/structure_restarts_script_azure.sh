@@ -14,17 +14,15 @@ else
     bb=""
 fi
 
-
-
 echo "-------------"
 echo "Never restart"
 echo "-------------"
-timeout 300 $maplesat  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr -never-restart -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf  $bb
+timeout 300 $maplesat -no-pre  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr -never-restart -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf  $bb
 echo "--------------"
 echo "Always restart"
 echo "--------------"
-timeout 300 $maplesat  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr -always-restart -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
+timeout 300 $maplesat -no-pre  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr -always-restart -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
 echo "-----------------"
 echo "Standard restarts"
 echo "-----------------"
-timeout 300 $maplesat  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr  -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
+timeout 300 $maplesat -no-pre  -lsr-num -ccmin-mode=2 -verb=0  -conf-side-lsr -avg-clause-lsr  -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
