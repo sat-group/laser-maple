@@ -192,6 +192,10 @@ int main(int argc, char** argv)
         StringOption cmty_file("LASER","cmty-file", "var+cmty pairs, where vars should be 0 based");
         StringOption backbone_file("LASER","backbone-file", "backbone literals (one-based)");
 
+        StringOption cmty_locality_out("LASER","cmty-loc-out", "Output locality measures to given file");
+        StringOption backbone_metrics_out("LASER","bb-metrics-out", "Output backbone-based metrics to given file");
+        //StringOption avg_lsr_out("LASER","avg-lsr-out", "Output average lsr to given file");
+
 
         parseOptions(argc, argv, true);
         
@@ -440,6 +444,18 @@ int main(int argc, char** argv)
 					printf("GiniNormalizedClauses %f\n", gini_normalized_clauses);
 				else
 					printf("Gini failed\n");
+				if(cmty_locality_out){
+					const char* fname = cmty_locality_out;
+					FILE* cmty_out = fopen(fname, "wb");
+					if(gini_normalized_picks >= 0)
+						fprintf(cmty_out, "GiniNormalizedPicks %f\n", gini_normalized_picks);
+					else
+						fprintf(cmty_out, "Gini failed\n");
+					if(normalized_cmty_clauses >= 0)
+						fprintf(cmty_out, "GiniNormalizedClauses %f\n", gini_normalized_clauses);
+					else
+						fprintf(cmty_out, "Gini failed\n");
+				}
 
         	}
         	if(S.backbone_logging){
@@ -450,11 +466,18 @@ int main(int argc, char** argv)
         		}
         		printf("NormalizedBackboneFlips %f\n", S.num_backbone_flips / float(backbone_size));
         		printf("NormalizedBackboneSubsumedClauses %f\n", S.num_backbone_subsumed_clauses / float(backbone_size));
-
+        		if(backbone_metrics_out){
+        			const char* fname = backbone_metrics_out;
+        			FILE* bb_out = fopen(fname, "wb");
+            		fprintf(bb_out, "NormalizedBackboneFlips %f\n", S.num_backbone_flips / float(backbone_size));
+            		fprintf(bb_out, "NormalizedBackboneSubsumedClauses %f\n", S.num_backbone_subsumed_clauses / float(backbone_size));
+            		fclose(bb_out);
+        		}
         	}
         }
-        if(S.compute_avg_clause_lsr){
+        if(S.avg_clause_lsr_out){
         	printf("AvgClauseLSR %f\n", S.total_clause_lsr_weight / S.all_learnts);
+        	fprintf(S.avg_clause_lsr_out, "%f\n", S.total_clause_lsr_weight / S.all_learnts);
         }
 
         if (S.verbosity > 0){

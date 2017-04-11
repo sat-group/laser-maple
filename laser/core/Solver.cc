@@ -64,7 +64,7 @@ static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove c
 static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", false);
 
 // structure logging
-static BoolOption   opt_average_clause_lsr("LASER","avg-clause-lsr","For each learnt, record its lsr size, compute the average.\n",false);
+static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");
 
 
 
@@ -152,7 +152,7 @@ Solver::Solver() :
   , never_gc(opt_never_gc)
   , structure_logging(false)
   , cmty_logging(false)
-  , compute_avg_clause_lsr(opt_average_clause_lsr)
+
   , all_learnts(0)
   , total_clause_lsr_weight(0)
   , num_backbone_flips(0)
@@ -162,6 +162,12 @@ Solver::Solver() :
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
   all_decisions_filename = NULL;
+  //, compute_avg_clause_lsr(opt_average_clause_lsr)
+  if(opt_average_clause_lsr_out){
+	  const char* fname = opt_average_clause_lsr_out;
+	  avg_clause_lsr_out = fopen(fname, "wb");
+  }
+
   lsr_num = false;
 } 
 
@@ -1467,7 +1473,7 @@ lbool Solver::search(int nof_conflicts)
                 uncheckedEnqueue(learnt_clause[0], cr);
             }
 
-            if(compute_avg_clause_lsr){
+            if(avg_clause_lsr_out){
 				all_learnts++;
 				total_clause_lsr_weight += decision_clause.size();
 			}

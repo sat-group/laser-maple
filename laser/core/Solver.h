@@ -267,7 +267,7 @@ public:
     int num_backbone_flips;
     int num_backbone_subsumed_clauses;
 
-    bool compute_avg_clause_lsr;
+    FILE* avg_clause_lsr_out;
     int all_learnts;
     double total_clause_lsr_weight;
 
@@ -284,6 +284,7 @@ protected:
 
     const char * lsr_filename;
     const char * all_decisions_filename;
+
     vec<char> all_decisions;
     bool lsr_num;
 
