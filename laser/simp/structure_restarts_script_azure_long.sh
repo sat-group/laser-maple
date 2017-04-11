@@ -27,4 +27,4 @@ echo "--------------"
 echo "-----------------"
 echo "Standard restarts"
 echo "-----------------"
-timeout 5100 $maplesat -no-pre  -lsr-num -ccmin-mode=2 -verb=0 -lsr-out=${base_dir}/ccmin2_confl_side_lsr/${name}.lsr -all-dec-out=${base_dir}/ccmin2_all_decs/${name}.all_decs -conf-side-lsr -avg-clause-lsr  -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
+timeout 18020  $maplesat -cpu-lim=18000 -mem-lim=13312 -no-pre  -lsr-num -ccmin-mode=2 -verb=0 -lsr-out=${base_dir}/ccmin2_confl_side_lsr/${name}.lsr -all-dec-out=${base_dir}/ccmin2_all_decs/${name}.all_decs -conf-side-lsr -avg-clause-lsr  -cmty-file=${base_dir}/cmty/${name}.cmty ${base_dir}/cnf/${name}.cnf $bb
