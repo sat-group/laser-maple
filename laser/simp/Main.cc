@@ -249,7 +249,6 @@ int main(int argc, char** argv)
 
         parse_DIMACS(in, S);
 
-
         // maps vars to cmtys
 		if(cmty_file){
 			S.structure_logging = true;

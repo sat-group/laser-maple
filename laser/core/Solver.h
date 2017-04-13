@@ -264,6 +264,8 @@ public:
     vec<double> cmty_clauses;
     vec<int> backbone; // 0 -- not, 1 -- positive lit, 2 -- negative lit
     vec<char> backbone_prev_polarity; // 0 -- not sign(), 1 -- sign(), 2 -- never set
+
+
     int num_backbone_flips;
     int num_backbone_subsumed_clauses;
 
@@ -271,6 +273,10 @@ public:
     int all_learnts;
     double total_clause_lsr_weight;
 
+    // final deps for sat case maxsat spec
+    void dumpFinalDepsFile();
+    vec<char> needed_lsr;
+    const char* lsr_final_deps_file;
 
 protected:
 
