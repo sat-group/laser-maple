@@ -65,9 +65,11 @@ static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr
 
 // structure logging
 static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");
+static StringOption   opt_lsr_frequency("LASER","lsr-frequency-out","Record how many times each variable is a dependent of a clause.");
+
 
 //lsr maxsat for SAT final deps
-static StringOption opt_lsr_final_deps("LASER", "lsr-final-deps", "Write the dependent decisions for each final propagated var.\n");
+static StringOption opt_lsr_final_deps("LASER", "lsr-final-deps", "Smaller LSR for SAT case. Don't look at deps of propagated vars, just add it.");
 
 
 
@@ -179,8 +181,14 @@ Solver::Solver() :
     }
     else
     	lsr_final_deps_file = NULL;
-
-
+  if(opt_lsr_frequency){
+	  record_lsr_frequency = true;
+	  lsr_frequency_file = opt_lsr_frequency;
+  }
+  else{
+	  record_lsr_frequency = false;
+	  lsr_frequency_file = NULL;
+  }
   lsr_num = false;
 } 
 
@@ -581,6 +589,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
 }
 
+
 void Solver::getDecisionsFinalUnsat(CRef cr, vec<Lit>& decisions)
 {
 	Clause& c = ca[cr];
@@ -719,21 +728,26 @@ void Solver::getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag
   }
   if(clause_and_conflict_side_lsr){
 	  if(!final_sat_call){
-		  for(int i = 0; i < clause.size(); i++){
-			  Var v = var(clause[i]);
-			  if(!seen[v]){
-				  seen[v] = 1;
-				  lsr_toclear.push(v);
-				  decisions.push(clause[i]);
-			  }
+		for(int i = 0; i < clause.size(); i++){
+		  Var v = var(clause[i]);
+		  if(!seen[v]){
+			  seen[v] = 1;
+			  lsr_toclear.push(v);
+			  decisions.push(clause[i]);
 		  }
-			for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
-			for (int i = 0; i < decisions.size(); i++){
-				seen[var(decisions[i])] = 0;
-				//printf("dec %d\n",var(decisions[i])+1);
-			}
+		}
+		for (int i = 0; i < lsr_toclear.size(); i++) lsr_seen[lsr_toclear[i]] = 0;
+		for (int i = 0; i < decisions.size(); i++){
+			seen[var(decisions[i])] = 0;
+			//printf("dec %d\n",var(decisions[i])+1);
+		}
 
-			lsr_toclear.clear();
+		lsr_toclear.clear();
+		if(record_lsr_frequency){
+			for (int i = 0; i < decisions.size(); i++){
+				lsr_frequency[var(decisions[i])] += 1;
+			}
+		}
 	  }
 	  else{ // for the final call to the sat case TODO: make separate function
 		assert(decisions.size() == 0);
@@ -1656,113 +1670,33 @@ void Solver::dumpFinalDepsFile(){
 	  // Note: variables start at index 0
 	  res_log = fopen(lsr_final_deps_file, "wb");
 	}
-	needed_lsr.growTo(nVars());
-	for (int i = 0; i < needed_lsr.size(); i++) needed_lsr[i] = 0;
-
-
-	vec<Lit> clause;
 	vec<Lit> decisions;
-	for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
-	//could do this more efficiently, but more worried about memory
-	//get needed lsr vars first
-	fprintf(res_log, "p wcnf %d %d 15\n", 2*nVars(), 2*nVars());
-
-	// soft clauses for each var, and hard clause saying it must be implied
-	for (int i = 0; i < nVars(); i++){
-		fprintf(res_log, "1 %d 0\n", -(nVars() + i + 1)); // soft bd higher
-		fprintf(res_log, "15 %d 0\n", i + 1); //implied lower
-	}
-	//fprintf(res_log, "\n");
-
-
 
 	for (int i = 0; i < trail.size(); i++){
-		decisions.clear();
 
 		Lit p = trail[i];
 		Var x = var(p);
-
 		if (assumption(x)){
-			// Unit clause -- include its dependencies
-			Clause &cu = ca_lsr[unit_lsr[x]];
-			for (int i = 0; i < cu.size(); i++){
-				decisions.push(cu[i]);
-			}
-			// also include the unit literal itself
 			decisions.push(p);
 		}
 		else if (reason(x) == CRef_Undef){
-			// Decision variable on the final trail
 			decisions.push(p);
 		}
 		else {
 			// Reason is a clause
 			Clause &c = ca[reason(x)];
 			if (c.learnt()){
-				// include the learnt clause itself, as well as its dependencies
-				// note: for the non-absorption approach below, i starts at c.size()
-				for (int i = 0; i < c.rsize(); i++){
-					decisions.push(c[i]);
-				}
+				decisions.push(p);
 			}
 			else { // with the absorption result, I don't need to consider original clauses
 				continue;
 			}
 		}
-
-		// TODO account for free lits?
-
-		if(decisions.size() == 1 && var(decisions[0]) == x){
-			needed_lsr[i] = 1;
-			printf("IN needed\n");
-			fprintf(res_log, "15 %d 0\n", nVars() + x + 1); // i is in the lsr bd
-		}
-	}
-	for (int i = 0; i < trail.size(); i++){
-		if(needed_lsr[var(trail[i])])
-			continue;
-		decisions.clear();
-
-		Lit p = trail[i];
-		Var x = var(p);
-
-		if (assumption(x)){
-			// Unit clause -- include its dependencies
-			Clause &cu = ca_lsr[unit_lsr[x]];
-			for (int i = 0; i < cu.size(); i++){
-				decisions.push(cu[i]);
-			}
-			// also include the unit literal itself
-			decisions.push(p);
-		}
-		else if (reason(x) == CRef_Undef){
-			// Decision variable on the final trail
-			decisions.push(p);
-		}
-		else {
-			// Reason is a clause
-			Clause &c = ca[reason(x)];
-			if (c.learnt()){
-				// include the learnt clause itself, as well as its dependencies
-				// note: for the non-absorption approach below, i starts at c.size()
-				for (int i = 0; i < c.rsize(); i++){
-					decisions.push(c[i]);
-				}
-			}
-			else { // with the absorption result, I don't need to consider original clauses
-				continue;
-			}
-		}
-		//fprintf(res_log, "%d | ", i);
-		// for each dep, add the clause s_i v d_j
-		for(int j = 0; j < decisions.size(); j++){
-			// if in needed_lsr, then its already satisfied, omit it
-			if(!needed_lsr[var(decisions[j])])
-				fprintf(res_log, "15 %d %d 0\n", nVars() + x + 1, var(decisions[j]) + 1);
-		}
-		//fprintf(res_log, "\n");
 	}
 
+	for(int i = 0; i < decisions.size(); i++){
+		fprintf(res_log,"%d\n", var(decisions[i]));
+	}
 	fclose(res_log);
 	for (int i = 0; i < lsr_seen.size(); i++) assert(lsr_seen[i] == 0);
 }

@@ -265,9 +265,12 @@ public:
     vec<int> backbone; // 0 -- not, 1 -- positive lit, 2 -- negative lit
     vec<char> backbone_prev_polarity; // 0 -- not sign(), 1 -- sign(), 2 -- never set
 
-
     int num_backbone_flips;
     int num_backbone_subsumed_clauses;
+
+    bool record_lsr_frequency;
+    const char* lsr_frequency_file;
+    vec<int> lsr_frequency;
 
     FILE* avg_clause_lsr_out;
     int all_learnts;
@@ -404,6 +407,7 @@ protected:
     CRef     propagate        ();                                                      // Perform unit propagation. Returns possibly conflicting clause.
     void     cancelUntil      (int level);                                             // Backtrack until a certain level.
     void     analyze          (CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, int& out_btlevel);    // (bt = backtrack)
+
     void     analyzeFinal     (Lit p, vec<Lit>& out_conflict);                         // COULD THIS BE IMPLEMENTED BY THE ORDINARIY "analyze" BY SOME REASONABLE GENERALIZATION?
     bool     litRedundant     (Lit p, uint32_t abstract_levels,  vec<Lit>& lsr_conflict_side);                       // (helper method for 'analyze()')
 

@@ -415,8 +415,20 @@ int main(int argc, char** argv)
         S.setFilename(lsr_file);
         S.setAllDecisionsFilename(all_decisions_file);
 
+        if(S.record_lsr_frequency)
+        	S.lsr_frequency.growTo(S.nVars(), 0);
+
         lbool ret = S.solveLimited(dummy);
         
+        if(S.record_lsr_frequency){
+        	const char* fname = S.lsr_frequency_file;
+			FILE* frequency_out = fopen(fname, "wb");
+			for(int i = 0; i < S.lsr_frequency.size(); i++){
+				fprintf(frequency_out, "%d %d\n", i, S.lsr_frequency[i]);
+			}
+			fclose(frequency_out);
+        }
+
         if(S.structure_logging){
         	if(S.cmty_logging){
         		// compute normalized pick values for each cmty
