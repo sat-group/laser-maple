@@ -179,7 +179,10 @@ int main(int argc, char** argv)
         StringOption lsr_file("LASER","lsr-out","Write LSR backdoor to a file (zero-based).\n");
         StringOption all_decisions_file("LASER","all-dec-out","Write all unique decision vars to a file (same as LS paper) (zero-based).\n");
 
+
         BoolOption   lsr_num("LASER","lsr-num","Number of LSR backdoor variables.\n",false);
+        BoolOption   all_decisions_num("LASER","all-decs-num","Number of unique decision variables.\n",false);
+
 
         // certificate generation
         StringOption lsr_file_in("LASER","lsr-in","Used to create a certificate for an lsr, generate with -lsr-out (zero-based).\n");
@@ -412,6 +415,7 @@ int main(int argc, char** argv)
         }
 
         S.setLSR(lsr_num);
+        S.setAllDecsNum(all_decisions_num);
         S.setFilename(lsr_file);
         S.setAllDecisionsFilename(all_decisions_file);
 

@@ -185,6 +185,10 @@ public:
         lsr_num = flag;
     }
 
+    void setAllDecsNum(bool flag){
+    	all_decs_num = flag;
+    }
+
     void setDecisionVarsList(StringOption decision_vars){
 		if (decision_vars) {
 
@@ -296,6 +300,7 @@ protected:
 
     vec<char> all_decisions;
     bool lsr_num;
+    bool all_decs_num;
 
     void getDecisionsFinalUnsat(CRef cr, vec<Lit>& decisions);
     void getDecisions(vec<Lit>& clause, vec<Lit>& decisions, bool print_flag=false, bool final_sat_call=false);

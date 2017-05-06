@@ -1816,6 +1816,15 @@ lbool Solver::solve_()
     if (lsr_num){
       printf("LSR Backdoors [%d / %d] : %.2f%%\n",lsr_final.size(),nVars(),(double)lsr_final.size()/nVars()*100);
     }
+    if(all_decs_num){
+    	int count = 0;
+      for(int i = 0; i < all_decisions.size(); i++)
+    	  if(all_decisions[i])
+    		  count++;
+
+      printf("All Decisions [%d / %d] : %.2f%%\n",count, nVars(),(double)count/nVars()*100);
+
+    }
 
     if (lsr_filename != NULL){
       // Note: variables start at index 0
