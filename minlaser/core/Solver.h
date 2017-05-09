@@ -21,6 +21,11 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #ifndef Minisat_Solver_h
 #define Minisat_Solver_h
 
+#include <set>
+#include <vector>
+#include <algorithm>
+
+
 #include "mtl/Vec.h"
 #include "mtl/Heap.h"
 #include "mtl/Alg.h"
@@ -29,6 +34,10 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 
 namespace Minisat {
+
+
+
+
 
 //=================================================================================================
 // Solver -- the main class:
@@ -142,6 +151,13 @@ public:
     int       learntsize_adjust_start_confl;
     double    learntsize_adjust_inc;
 
+    bool always_restart;
+    bool never_restart;
+    bool clause_deletion;
+    bool lsr_verb;
+    bool lsr_mode;
+    const char* replay_bd_out_file;
+
     // Statistics: (read-only member variable)
     //
     uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
@@ -166,12 +182,370 @@ public:
     vec<long double> total_actual_rewards;
     vec<int> total_actual_count;
 
+    void setFilename(const char * file){
+        //strcpy(lsr_filename, file);
+        lsr_filename = file;
+    }
+
+    void setLSR(bool flag){
+        lsr_num = flag;
+    }
+
+    void setDecisionVarsList(StringOption decision_vars){
+		if (decision_vars) {
+
+			//decision.growTo(nVars(), 0);
+			set_decision_vars = true;
+			const char* file_name = decision_vars;
+			FILE* decision_vars_file = fopen (file_name, "r");
+			if (decision_vars_file == NULL)
+				printf("ERROR! Could not open decision vars file: %s\n", file_name), exit(1);
+			int i = 0;
+			while (fscanf(decision_vars_file, "%d", &i) == 1) {
+				//now zero based..
+				decision.growTo(i + 1, 0);
+				decision[i] = 1;
+			}
+			fclose(decision_vars_file);
+		}
+		else{
+			set_decision_vars = false;
+		}
+    }
+
+    //EDXXX chicken and egg...
+    void growDecision(int v){
+    	decision.growTo(v, 0);
+    }
+
+
+    void numOccsForVars(vec<int> & num_occs){
+    	num_occs.growTo(nVars(), 0);
+    	for(int i = 0; i < clauses.size(); i++){
+    		CRef cr = clauses[i];
+    		Clause& c = ca[cr];
+    		for (int j = 0; j < c.size(); j++){
+				Var x = var(c[j]);
+				num_occs[x] += 1;
+    		}
+    	}
+    	//for(int i = 0; i < num_occs.size(); i++){
+    	//	printf("%d ", num_occs[i]);
+    	//}
+    	//printf("\n");
+    }
+
+    Clause* get_clause(int i){
+		CRef cr = clauses[i];
+		Clause* cl = ca.lea(cr);
+		//printf("Clause: ");
+		//for (int j = 0; j < cl->size(); j++)
+		//	printf("%d ", (*cl)[j]);
+		//printf("\n");
+		return cl;
+	}
+
+    Clause* get_learnt(int i){
+		CRef cr = learnts[i];
+		Clause* cl = ca.lea(cr);
+		//printf("Clause: ");
+		//for (int j = 0; j < cl->size(); j++)
+		//	printf("%d ", (*cl)[j]);
+		//printf("\n");
+		return cl;
+	}
+
+    //*********** STATE LOGGING **********************************
+
+    void nuke(){
+    	// NOT CURRENTLY USED: units are still problematic
+    	cancelUntil(0);
+    	replay_trail.clear();
+		// todo found units?
+		nukeDB();
+		printf("After cancel trail size: %d\n", trail.size());
+    }
+
+    void nukeDB(){
+    	for (int i = 0; i < learnts.size(); i++){
+    		//printf("Removing\n");
+    		//Clause& c = ca[learnts[i]];
+    		//printf("Locked: %d\n", locked(c));
+			removeClause(learnts[i]);
+		}
+    	// todo nuke units...
+		learnts.shrink(learnts.size());
+		checkGarbage();
+		printf("Post size: %d\n", learnts.size());
+
+    }
+
+
+    std::vector<Lit> found_units;
+    std::vector<vec<Lit>*> prev_learnts;
+    std::vector<Lit> replay_trail;
+    int curr_replay_trail_index;
+    bool skipped_last_lit;
+    bool just_learnt_clause;
+    bool just_learnt_unit;
+
+    struct SolverState{
+    	std::vector<Lit>* mAllDecisions;
+    	std::vector<Lit>* mTrail;
+    	std::vector<Lit>* mNext;
+    	std::vector<std::vector<Lit> >* mLearnts; // invariant: learnts are sorted (not done by default in solver)
+    	std::vector<Lit>* mFoundUnits;
+    	int mNextIndex;
+
+    	SolverState(){
+    		mAllDecisions = new std::vector<Lit>;
+    		mTrail = new std::vector<Lit>;
+    		mNext = new std::vector<Lit>;
+    		mLearnts = new std::vector<std::vector<Lit> >;
+    		mFoundUnits = new std::vector<Lit>;
+    		mNextIndex = 0;
+    	}
+
+    	~SolverState(){
+    		//printf("Deleting\n");
+    		mAllDecisions->clear();
+    		mTrail->clear();
+    		mNext->clear();
+    		mFoundUnits->clear();
+    		mLearnts->clear();
+    		//std::vector<std::vector<Lit> >().swap(*mLearnts);
+    		//std::vector<Lit>().swap(*mAllDecisions);
+    		//std::vector<Lit>().swap(*mTrail);
+    		//std::vector<Lit>().swap(*mNext);
+    		//std::vector<Lit>().swap(*mFoundUnits);
+    		delete mAllDecisions;
+    		delete mTrail;
+    		delete mNext;
+    		delete mLearnts;
+    		delete mFoundUnits;
+    	}
+
+    	static bool sortFunc( const std::vector<Lit>& p1,
+    			   const std::vector<Lit>& p2 ) {
+    		if(p1.size() < p2.size())
+    			return true;
+    		else if(p1.size() > p2.size())
+    			return false;
+    		else{
+    			for(unsigned i = 0; i < p1.size(); i++){
+    				int l = toInt(p1[i]);
+    				int r = toInt(p2[i]);
+    				if(l < r)
+    					return true;
+    				if(l > r)
+    					return false;
+    			}
+    		}
+    		printf("Should never have duplicate clauses\n");
+    		for(unsigned i = 0; i < p1.size(); i++){
+    			printf("%s%d ", sign(p1[i]) ? "-" : "", var(p1[i]));
+    		}
+    		printf("\n");
+    		exit(1);
+    	 }
+
+    	void sortState(){
+    		// std::sort(mTrail->begin(), mTrail->end()); //sorting the trail may break replay
+    		std::sort(mLearnts->begin(), mLearnts->end(), sortFunc);
+    		std::sort(mFoundUnits->begin(), mFoundUnits->end());
+    	}
+
+    };
+
+    SolverState* final_state;
+
+    SolverState* createSolverState(){
+    	//printf("CREATING STATE\n");
+    	SolverState* s = new SolverState;
+        std::vector<Var> next_vars;
+
+    	if(just_learnt_unit)
+    		cancelUntil(0);
+
+    	if(lsr_verb)
+    		printf("Clearing trail and adding: ");
+		for(unsigned i = 0; i < decision.size(); i++){
+			if(decision[i] && assigns[i] == l_Undef && !assumption(i)){
+				next_vars.push_back(i);
+				if(lsr_verb)
+					printf(" %d", i);
+			}
+		}
+		if(lsr_verb)
+			printf("\n");
+
+    	for(int i = 0; i < trail.size(); i++) // todo just get this from the replay_trail?
+    		if(reason(var(trail[i])) == CRef_Undef && level(var(trail[i])) > 0) // only add decision vars
+    			s->mTrail->push_back(trail[i]);
+
+
+    	vec<Lit>* c;
+    	std::vector<Lit>* v;
+
+    	for(int i = 0; i < prev_learnts.size(); i++){
+    		c = prev_learnts[i];
+			v = new std::vector<Lit>;
+
+			for(int j = 0; j < c->size(); j++){
+				Lit l = (*c)[j];
+				v->push_back(l);
+			}
+			std::sort(v->begin(), v->end());
+			s->mLearnts->push_back(*v);
+			//delete v;
+    	}
+
+    	Clause* clause;
+    	for(int i = 0; i < learnts.size(); i++){
+    		clause = get_learnt(i);
+    		v = new std::vector<Lit>;
+
+    		for(int j = 0; j < clause->size(); j++){
+    			Lit l = (*clause)[j];
+    			v->push_back(l);
+    		}
+    		std::sort(v->begin(), v->end());
+    		s->mLearnts->push_back(*v);
+    		//delete v;
+    	}
+    	if(s->mLearnts->size())
+    		printf("LSIZE %d\n", s->mLearnts->size());
+
+    	s->sortState();
+
+    	for(unsigned i = 0; i < next_vars.size(); i++){
+    		s->mNext->push_back(mkLit(next_vars[i], true));
+    		s->mNext->push_back(mkLit(next_vars[i], false));
+    	}
+
+    	if(just_learnt_clause && lsr_mode){
+    		if(lsr_verb)
+    			printf("JUST LEARNT\n");
+    		s->mNext->push_back(lit_Undef);
+    	}
+
+    	for(unsigned i = 0; i < found_units.size(); i++)
+    		s->mFoundUnits->push_back(found_units[i]);
+
+    	return s;
+    }
+
+    void printState(SolverState* s){
+    	if(!lsr_verb)
+    		return;
+    	//return; //todo remove
+    	//printf("STATE\n");
+		printf("STATE: (%d learnts), \n   AllDecisions: [", s->mLearnts->size());
+		for(unsigned i = 0; i < s->mAllDecisions->size(); i++){
+			printf("%s%d ", sign(s->mAllDecisions->at(i)) ? "-" : "", var((*(s->mAllDecisions))[i]));
+		}
+		printf("], \n   Units: [");
+		for(unsigned i = 0; i < s->mFoundUnits->size(); i++){
+			printf("%s%d ", sign(s->mFoundUnits->at(i)) ? "-" : "", var((*(s->mFoundUnits))[i]));
+		}
+		printf("], \n   Trail: [");
+		for(unsigned i = 0; i < s->mTrail->size(); i++){
+			printf("%s%d ", sign(s->mTrail->at(i)) ? "-" : "", var((*(s->mTrail))[i]));
+		}
+		printf("], \n   Next: ");
+		if(!s->mNext->empty())
+			printf("%s%d", sign(s->mNext->at(s->mNextIndex))? "-":"", var(s->mNext->at(s->mNextIndex)));
+		printf("\n");
+		printf("LEARNTS:\n");
+		for(unsigned i = 0; i < s->mLearnts->size(); i++){
+			std::vector<Lit> v = (*(s->mLearnts))[i];
+			for(unsigned j = 0; j < v.size(); j++){
+				printf("%s%d ", sign(v[j])?"-":"", var(v[j]));
+			}
+			printf("\n");
+		}
+		printf("END STATE\n");
+
+    }
+
+    static bool existingState(SolverState* curr, std::vector<SolverState*>& states){
+    	for(int unsigned i = 0; i < states.size(); i++){
+    		if(equalSolverStates(curr, states[i]))
+    			return true;
+    	}
+    	return false;
+    }
+
+    // PRE: l and r have sorted trails, learnt clauses, and clause lits
+    static bool equalSolverStates(SolverState* l, SolverState* r){
+    	if(l->mTrail->size() != r->mTrail->size() || l->mLearnts->size() != r->mLearnts->size())
+    		return false;
+    	// equal sizes, and sorted
+    	// could probably be more efficient with sets I guess
+    	std::vector<Lit> lTrailSorted;
+    	std::vector<Lit> rTrailSorted;
+    	for(unsigned i = 0; i < r->mTrail->size(); i++){
+    		lTrailSorted.push_back(l->mTrail->at(i));
+    		rTrailSorted.push_back(r->mTrail->at(i));
+    	}
+    	std::sort(lTrailSorted.begin(), lTrailSorted.end());
+    	std::sort(rTrailSorted.begin(), rTrailSorted.end());
+    	for(unsigned i = 0; i < lTrailSorted.size(); i++){
+    		if(lTrailSorted[i] != rTrailSorted[i])
+    			return false;
+    	}
+    	// equal sizes, and sorted
+		for(unsigned i = 0; i < r->mLearnts->size(); i++){
+			std::vector<Lit> lvec = l->mLearnts->at(i);
+			std::vector<Lit> rvec = r->mLearnts->at(i);
+			if(lvec.size() != rvec.size())
+				return false;
+			else{
+				for(unsigned j = 0; j < lvec.size(); j++){
+					if(lvec[j] != rvec[j])
+						return false;
+				}
+			}
+		}
+		// equal next vars
+		if(l->mNext->size() != r->mNext->size())
+			return false;
+		for(unsigned i = 0; i < r->mNext->size(); i++){
+			if(l->mNext->at(i) != r->mNext->at(i))
+				return false;
+		}
+
+		// equal units
+		if(l->mFoundUnits->size() != r->mFoundUnits->size())
+			return false;
+		//if(r->mFoundUnits->size()>1)
+		//	printf("UNITS SIZE: %d\n", r->mFoundUnits->size());
+		for(unsigned i = 0; i < r->mFoundUnits->size(); i++){
+			if(l->mFoundUnits->at(i) != r->mFoundUnits->at(i))
+				return false;
+		}
+
+    	return true;
+    }
+
+
+
+    bool 				set_decision_vars;
+    vec<char>           decision;         // Declares if a variable is eligible for selection in the decision heuristic.
+
 protected:
+
+    // LASER misc:
+
+    const char * lsr_filename;
+    bool lsr_num;
+
+
 
     // Helper structures:
     //
-    struct VarData { CRef reason; int level; };
-    static inline VarData mkVarData(CRef cr, int l){ VarData d = {cr, l}; return d; }
+    struct VarData { CRef reason; int level; bool assumption; };
+    static inline VarData mkVarData(CRef cr, int l, bool a = false){ VarData d = {cr, l, a}; return d; }
 
     struct Watcher {
         CRef cref;
@@ -208,7 +582,6 @@ protected:
                         watches;          // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
     vec<lbool>          assigns;          // The current assignments.
     vec<char>           polarity;         // The preferred polarity of each variable.
-    vec<char>           decision;         // Declares if a variable is eligible for selection in the decision heuristic.
     vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
     vec<VarData>        vardata;          // Stores reason and level for each variable.
@@ -299,6 +672,8 @@ protected:
     uint32_t abstractLevel    (Var x) const; // Used to represent an abstraction of sets of decision levels.
     CRef     reason           (Var x) const;
     int      level            (Var x) const;
+    bool     assumption       (Var x) const;
+    void     setAssumption       (Var x, bool v) { vardata[x].assumption = v; }
     double   progressEstimate ()      const; // DELETE THIS ?? IT'S NOT VERY USEFUL ...
     bool     withinBudget     ()      const;
 
@@ -323,6 +698,7 @@ protected:
 
 inline CRef Solver::reason(Var x) const { return vardata[x].reason; }
 inline int  Solver::level (Var x) const { return vardata[x].level; }
+inline bool Solver::assumption (Var x) const { return vardata[x].assumption; }
 
 inline void Solver::insertVarOrder(Var x) {
     if (!order_heap.inHeap(x) && decision[x]) order_heap.insert(x); }
@@ -378,11 +754,10 @@ inline int      Solver::nLearnts      ()      const   { return learnts.size(); }
 inline int      Solver::nVars         ()      const   { return vardata.size(); }
 inline int      Solver::nFreeVars     ()      const   { return (int)dec_vars - (trail_lim.size() == 0 ? trail.size() : trail_lim[0]); }
 inline void     Solver::setPolarity   (Var v, bool b) { polarity[v] = b; }
-inline void     Solver::setDecisionVar(Var v, bool b) 
+inline void     Solver::setDecisionVar(Var v, bool b)
 { 
     if      ( b && !decision[v]) dec_vars++;
     else if (!b &&  decision[v]) dec_vars--;
-
     decision[v] = b;
     insertVarOrder(v);
 }

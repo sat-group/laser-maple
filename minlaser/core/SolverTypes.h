@@ -82,7 +82,7 @@ struct Lit {
     int     x;
 
     // Use this as a constructor:
-    friend Lit mkLit(Var var, bool sign = false);
+    friend Lit mkLit(Var var, bool sign);
 
     bool operator == (Lit p) const { return x == p.x; }
     bool operator != (Lit p) const { return x != p.x; }
@@ -90,7 +90,7 @@ struct Lit {
 };
 
 
-inline  Lit  mkLit     (Var var, bool sign) { Lit p; p.x = var + var + (int)sign; return p; }
+inline  Lit  mkLit     (Var var, bool sign = false) { Lit p; p.x = var + var + (int)sign; return p; }
 inline  Lit  operator ~(Lit p)              { Lit q; q.x = p.x ^ 1; return q; }
 inline  Lit  operator ^(Lit p, bool b)      { Lit q; q.x = p.x ^ (unsigned int)b; return q; }
 inline  bool sign      (Lit p)              { return p.x & 1; }
@@ -161,26 +161,56 @@ class Clause {
         unsigned learnt    : 1;
         unsigned has_extra : 1;
         unsigned reloced   : 1;
-        unsigned size      : 27; }                            header;
+        unsigned size      : 27;
+        unsigned rsize     : 32; 
+    }                            header;
     union { Lit lit; Act act; uint32_t abs; CRef rel; } data[0];
 
     friend class ClauseAllocator;
 
-    // NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
     template<class V>
-    Clause(const V& ps, bool use_extra, bool learnt) {
+    Clause(const V& ps, bool use_extra, int size, int rsize, bool learnt) {
         header.mark      = 0;
         header.learnt    = learnt;
         header.has_extra = use_extra;
         header.reloced   = 0;
-        header.size      = ps.size();
+        header.size      = size;
+        header.rsize     = rsize;
 
-        for (int i = 0; i < ps.size(); i++) 
+        for (int i = 0; i < rsize; i++) 
             data[i].lit = ps[i];
 
         if (header.has_extra){
             if (header.learnt)
-                data[header.size].act = 0; 
+                data[header.rsize].act = 0; 
+            else 
+                calcAbstraction(); }
+    }
+
+    // NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
+    template<class V>
+    Clause(const V& ps, bool use_extra, bool learnt) {
+        assert (learnt == false);
+        
+        int size = ps.size();
+        int rsize = ps.size();
+
+        header.mark      = 0;
+        header.learnt    = learnt;
+        header.has_extra = use_extra;
+        header.reloced   = 0;
+        header.size      = size;
+        header.rsize     = rsize;
+
+        if (learnt)
+            assert(size < rsize);
+
+        for (int i = 0; i < rsize; i++) 
+            data[i].lit = ps[i];
+
+        if (header.has_extra){
+            if (header.learnt)
+                data[header.rsize].act = 0; 
             else 
                 calcAbstraction(); }
     }
@@ -189,19 +219,20 @@ public:
     void calcAbstraction() {
         assert(header.has_extra);
         uint32_t abstraction = 0;
-        for (int i = 0; i < size(); i++)
+        for (int i = 0; i < rsize(); i++)
             abstraction |= 1 << (var(data[i].lit) & 31);
-        data[header.size].abs = abstraction;  }
+        data[header.rsize].abs = abstraction;  }
 
 
     int          size        ()      const   { return header.size; }
-    void         shrink      (int i)         { assert(i <= size()); if (header.has_extra) data[header.size-i] = data[header.size]; header.size -= i; }
+    int          rsize       ()      const   { return header.rsize; }
+    void         shrink      (int i)         { assert(i <= rsize()); if (header.has_extra) data[header.rsize-i] = data[header.rsize]; header.rsize -= i; }
     void         pop         ()              { shrink(1); }
     bool         learnt      ()      const   { return header.learnt; }
     bool         has_extra   ()      const   { return header.has_extra; }
     uint32_t     mark        ()      const   { return header.mark; }
     void         mark        (uint32_t m)    { header.mark = m; }
-    const Lit&   last        ()      const   { return data[header.size-1].lit; }
+    const Lit&   last        ()      const   { return data[header.rsize-1].lit; }
 
     bool         reloced     ()      const   { return header.reloced; }
     CRef         relocation  ()      const   { return data[0].rel; }
@@ -213,8 +244,8 @@ public:
     Lit          operator [] (int i) const   { return data[i].lit; }
     operator const Lit* (void) const         { return (Lit*)data; }
 
-    Act&         activity    ()              { assert(header.has_extra); return data[header.size].act; }
-    uint32_t     abstraction () const        { assert(header.has_extra); return data[header.size].abs; }
+    Act&         activity    ()              { assert(header.has_extra); return data[header.rsize].act; }
+    uint32_t     abstraction () const        { assert(header.has_extra); return data[header.rsize].abs; }
 
     Lit          subsumes    (const Clause& other) const;
     void         strengthen  (Lit p);
@@ -241,8 +272,25 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
         RegionAllocator<uint32_t>::moveTo(to); }
 
     template<class Lits>
+    CRef alloc(const Lits& ps, int size, int rsize, bool learnt = false)
+    {
+        assert (learnt == true);
+        assert(sizeof(Lit)      == sizeof(uint32_t));
+        assert(sizeof(float)    == sizeof(uint32_t));
+        bool use_extra = learnt | extra_clause_field;
+
+        CRef cid = CRef_Undef;
+        cid = RegionAllocator<uint32_t>::alloc(clauseWord32Size(rsize, use_extra));
+
+        new (lea(cid)) Clause(ps, use_extra, size, rsize, learnt);    
+        
+        return cid;
+    }
+
+    template<class Lits>
     CRef alloc(const Lits& ps, bool learnt = false)
     {
+        assert (learnt == false);
         assert(sizeof(Lit)      == sizeof(uint32_t));
         assert(sizeof(float)    == sizeof(uint32_t));
         bool use_extra = learnt | extra_clause_field;
@@ -263,7 +311,7 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
     void free(CRef cid)
     {
         Clause& c = operator[](cid);
-        RegionAllocator<uint32_t>::free(clauseWord32Size(c.size(), c.has_extra()));
+        RegionAllocator<uint32_t>::free(clauseWord32Size(c.rsize(), c.has_extra()));
     }
 
     void reloc(CRef& cr, ClauseAllocator& to)
@@ -272,7 +320,9 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
         
         if (c.reloced()) { cr = c.relocation(); return; }
         
-        cr = to.alloc(c, c.learnt());
+        if (c.learnt()) cr = to.alloc(c, c.size(), c.rsize(), c.learnt());
+        else cr = to.alloc(c, c.learnt());
+
         c.relocate(cr);
         
         // Copy extra data-fields: 
@@ -405,16 +455,18 @@ inline Lit Clause::subsumes(const Clause& other) const
     //if (other.size() < size() || (!learnt() && !other.learnt() && (extra.abst & ~other.extra.abst) != 0))
     assert(!header.learnt);   assert(!other.header.learnt);
     assert(header.has_extra); assert(other.header.has_extra);
-    if (other.header.size < header.size || (data[header.size].abs & ~other.data[other.header.size].abs) != 0)
+    //assert (header.rsize == header.size && other.header.size == other.header.rsize);
+    if (other.header.rsize < header.rsize || (data[header.rsize].abs & ~other.data[other.header.rsize].abs) != 0 || 
+        other.header.size != other.header.rsize || header.size != header.rsize)
         return lit_Error;
 
     Lit        ret = lit_Undef;
     const Lit* c   = (const Lit*)(*this);
     const Lit* d   = (const Lit*)other;
 
-    for (unsigned i = 0; i < header.size; i++) {
+    for (unsigned i = 0; i < header.rsize; i++) {
         // search for c[i] or ~c[i]
-        for (unsigned j = 0; j < other.header.size; j++)
+        for (unsigned j = 0; j < other.header.rsize; j++)
             if (c[i] == d[j])
                 goto ok;
             else if (ret == lit_Undef && c[i] == ~d[j]){
@@ -433,6 +485,8 @@ inline Lit Clause::subsumes(const Clause& other) const
 inline void Clause::strengthen(Lit p)
 {
     remove(*this, p);
+    assert (!header.learnt);
+    header.size = header.rsize;
     calcAbstraction();
 }
 

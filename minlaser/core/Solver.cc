@@ -1,4 +1,4 @@
-/***************************************************************************************[Solver.cc]
+	/***************************************************************************************[Solver.cc]
 Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
 Copyright (c) 2007-2010, Niklas Sorensson
 
@@ -23,11 +23,14 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "mtl/Sort.h"
 #include "core/Solver.h"
 
+
 using namespace Minisat;
+
+
+
 
 //=================================================================================================
 // Options:
-
 
 static const char* _cat = "CORE";
 
@@ -47,6 +50,7 @@ static DoubleOption  opt_random_seed       (_cat, "rnd-seed",    "Used by the ra
 static IntOption     opt_ccmin_mode        (_cat, "ccmin-mode",  "Controls conflict clause minimization (0=none, 1=basic, 2=deep)", 2, IntRange(0, 2));
 static IntOption     opt_phase_saving      (_cat, "phase-saving", "Controls the level of phase saving (0=none, 1=limited, 2=full)", 2, IntRange(0, 2));
 static BoolOption    opt_rnd_init_act      (_cat, "rnd-init",    "Randomize the initial activity", false);
+static BoolOption    opt_rnd_pol     (_cat, "rnd-pol",    "Randomize the polarity selection", false);
 static BoolOption    opt_luby_restart      (_cat, "luby",        "Use the Luby restart sequence", true);
 static IntOption     opt_restart_first     (_cat, "rfirst",      "The base restart interval", 100, IntRange(1, INT32_MAX));
 static DoubleOption  opt_restart_inc       (_cat, "rinc",        "Restart interval increase factor", 2, DoubleRange(1, false, HUGE_VAL, false));
@@ -54,6 +58,10 @@ static DoubleOption  opt_garbage_frac      (_cat, "gc-frac",     "The fraction o
 #if BRANCHING_HEURISTIC == CHB
 static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward multiplier", 0.9, DoubleRange(0, true, 1, true));
 #endif
+static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
+static BoolOption    opt_never_restart      (_cat, "never-restart",        "Never restart.", true);
+static BoolOption    opt_clause_deletion    (_cat, "clause-deletion",        "Whether clause deletion happens.", false);
+static BoolOption    opt_with_lsr_restarts    (_cat, "lsr-mode",        "Whether restarts are allowed in trail.", false);
 
 
 //=================================================================================================
@@ -77,25 +85,40 @@ Solver::Solver() :
   , clause_decay     (opt_clause_decay)
 #endif
   , random_var_freq  (opt_random_var_freq)
+  , set_decision_vars (false)
   , random_seed      (opt_random_seed)
   , luby_restart     (opt_luby_restart)
   , ccmin_mode       (opt_ccmin_mode)
   , phase_saving     (opt_phase_saving)
-  , rnd_pol          (false)
+  , rnd_pol          (opt_rnd_pol)
   , rnd_init_act     (opt_rnd_init_act)
   , garbage_frac     (opt_garbage_frac)
   , restart_first    (opt_restart_first)
   , restart_inc      (opt_restart_inc)
+  , max_learnts      (500)  // will be changed during search
+  , var_inc          (1)    // not used
+  , learntsize_adjust_confl(0)
+  , learntsize_adjust_cnt(0)
 
     // Parameters (the rest):
     //
   , learntsize_factor((double)1/(double)3), learntsize_inc(1.1)
 
+  , always_restart (opt_always_restart)
+  , never_restart (opt_never_restart)
+  , clause_deletion (opt_clause_deletion)
+  , lsr_verb (false)
+  , just_learnt_clause(false)
+  , just_learnt_unit(false)
+
     // Parameters (experimental):
     //
   , learntsize_adjust_start_confl (100)
   , learntsize_adjust_inc         (1.5)
-
+  , final_state(0)
+  , curr_replay_trail_index(0)
+  , skipped_last_lit(false)
+  , lsr_mode(opt_with_lsr_restarts)
     // Statistics: (formerly in 'SolverStats')
     //
   , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0)
@@ -127,7 +150,11 @@ Solver::Solver() :
   , conflict_budget    (-1)
   , propagation_budget (-1)
   , asynch_interrupt   (false)
-{}
+{
+  //strcpy(lsr_filename,"");
+  lsr_filename = NULL;
+  lsr_num = false;
+} 
 
 
 Solver::~Solver()
@@ -153,7 +180,8 @@ Var Solver::newVar(bool sign, bool dvar)
     activity .push(rnd_init_act ? drand(random_seed) * 0.00001 : 0);
     seen     .push(0);
     polarity .push(sign);
-    decision .push();
+    if(!set_decision_vars)
+    	decision .push();
     trail    .capacity(v+1);
     lbd_seen.push(0);
     picked.push(0);
@@ -169,6 +197,9 @@ Var Solver::newVar(bool sign, bool dvar)
 #endif
     total_actual_rewards.push(0);
     total_actual_count.push(0);
+    if(set_decision_vars)
+    	dvar = decision[v] ? true : false; // EDXXX could probably be done better...
+
     setDecisionVar(v, dvar);
     return v;
 }
@@ -278,6 +309,7 @@ void Solver::cancelUntil(int level) {
             canceled[x] = conflicts;
 #endif
             assigns [x] = l_Undef;
+
             if (phase_saving > 1 || (phase_saving == 1) && c > trail_lim.last())
                 polarity[x] = sign(trail[c]);
             insertVarOrder(x); }
@@ -293,38 +325,22 @@ void Solver::cancelUntil(int level) {
 
 Lit Solver::pickBranchLit()
 {
-    Var next = var_Undef;
-
-    // Random decision:
-    if (drand(random_seed) < random_var_freq && !order_heap.empty()){
-        next = order_heap[irand(random_seed,order_heap.size())];
-        if (value(next) == l_Undef && decision[next])
-            rnd_decisions++; }
-
-    // Activity based decision:
-    while (next == var_Undef || value(next) != l_Undef || !decision[next])
-        if (order_heap.empty()){
-            next = var_Undef;
-            break;
-        } else {
-#if ANTI_EXPLORATION
-            next = order_heap[0];
-            uint64_t age = conflicts - canceled[next];
-            while (age > 0) {
-                double decay = pow(0.95, age);
-                activity[next] *= decay;
-                if (order_heap.inHeap(next)) {
-                    order_heap.increase(next);
-                }
-                canceled[next] = conflicts;
-                next = order_heap[0];
-                age = conflicts - canceled[next];
-            }
-#endif
-            next = order_heap.removeMin();
-        }
-
-    return next == var_Undef ? lit_Undef : mkLit(next, rnd_pol ? drand(random_seed) < 0.5 : polarity[next]);
+	// skipping may happen because units are placed at the front of the trail, which may invoke bcp
+	while(replay_trail.size() > curr_replay_trail_index && assigns[var(replay_trail[curr_replay_trail_index])] != l_Undef){
+		if(lsr_verb)
+			printf("Skipping: %s%d\n", sign(replay_trail[curr_replay_trail_index]) ? "-":"", var(replay_trail[curr_replay_trail_index]));
+		//exit(1);
+		if(curr_replay_trail_index == replay_trail.size() - 1)
+			skipped_last_lit = true;
+		curr_replay_trail_index++;
+	}
+	if(replay_trail.size() <= curr_replay_trail_index){
+		// put the new branches in next_vars
+		//printf("\n");
+		return lit_Undef;
+	}
+	//printf("NEW VAR: %d\n", replay_trail[curr_replay_trail_index]);
+	return replay_trail[curr_replay_trail_index++];
 }
 
 /*_________________________________________________________________________________________________
@@ -539,6 +555,18 @@ void Solver::analyzeFinal(Lit p, vec<Lit>& out_conflict)
 
 void Solver::uncheckedEnqueue(Lit p, CRef from)
 {
+	if(lsr_verb){
+		printf("Enqueue: %s%d\n", sign(p)?"-":"", var(p));
+		if(from != CRef_Undef){
+			Clause& c = ca[from];
+			printf("From ");
+			for(int i = 0; i < c.size(); i++){
+				printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+			}
+			printf("\n");
+		}
+	}
+
     assert(value(p) == l_Undef);
     picked[var(p)] = conflicts;
 #if ANTI_EXPLORATION
@@ -556,7 +584,7 @@ void Solver::uncheckedEnqueue(Lit p, CRef from)
     almost_conflicted[var(p)] = 0;
 #endif
     assigns[var(p)] = lbool(!sign(p));
-    vardata[var(p)] = mkVarData(from, decisionLevel());
+    vardata[var(p)] = mkVarData(from, decisionLevel(), assumption(var(p)));
     trail.push_(p);
 }
 
@@ -577,7 +605,6 @@ CRef Solver::propagate()
     CRef    confl     = CRef_Undef;
     int     num_props = 0;
     watches.cleanAll();
-
     while (qhead < trail.size()){
         Lit            p   = trail[qhead++];     // 'p' is enqueued fact to propagate.
         vec<Watcher>&  ws  = watches[p];
@@ -793,26 +820,70 @@ lbool Solver::search(int nof_conflicts)
             if (step_size > min_step_size)
                 step_size -= step_size_dec;
 #endif
-            if (decisionLevel() == 0) return l_False;
+            if (decisionLevel() == 0){
+            	printf("Units conflicted\n");
+            	return l_False;
+            }
 
             learnt_clause.clear();
             analyze(confl, learnt_clause, backtrack_level);
 
-            cancelUntil(backtrack_level);
+            if (learnt_clause.size() == 1){
+                assert (confl != CRef_Undef);
+
+                if (assumption(var(learnt_clause[0]))){
+                  printf("Here too\n");
+                  return l_False;
+                }
+                if(lsr_verb)
+                	printf("UNIT: %s%d\n", sign(learnt_clause[0])? "-" : "", var(learnt_clause[0]));
+                found_units.push_back(learnt_clause[0]);
+                just_learnt_unit = true;
+                //setAssumption(var(learnt_clause[0]), true);
+
+
+                //printf("variable %d, assumption %d\n",var(learnt_clause[0])+1,assumption(var(learnt_clause[0])));
+
+                cancelUntil(backtrack_level);
 
 #if BRANCHING_HEURISTIC == CHB
             action = trail.size();
 #endif
 
-            if (learnt_clause.size() == 1){
                 uncheckedEnqueue(learnt_clause[0]);
             }else{
-                CRef cr = ca.alloc(learnt_clause, true);
+                //CRef cr = ca.alloc(learnt_clause, true);
+
+                cancelUntil(backtrack_level);
+
+#if BRANCHING_HEURISTIC == CHB
+            action = trail.size();
+#endif
+
+                int size = learnt_clause.size();
+
+                //assert (confl != CRef_Undef);
+                //getDecisions(confl, decision_clause);
+                CRef cr = ca.alloc(learnt_clause, size, learnt_clause.size(), true);
                 learnts.push(cr);
                 attachClause(cr);
 #if LBD_BASED_CLAUSE_DELETION
                 Clause& clause = ca[cr];
                 clause.activity() = lbd(clause);
+
+                just_learnt_clause = true;
+                if(lsr_verb){
+					printf("Learnt: ");
+					for(int i = 0; i < learnt_clause.size(); i++){
+						printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]));
+					}
+					printf("\n");
+					printf("Trail: ");
+					for(int i = 0; i < trail.size(); i++){
+						printf("%s%d ", sign(trail[i])?"-":"", var(trail[i]));
+					}
+					printf("\n");
+                }
 #else
                 claBumpActivity(ca[cr]);
 #endif
@@ -849,11 +920,14 @@ lbool Solver::search(int nof_conflicts)
                 return l_Undef; }
 
             // Simplify the set of problem clauses:
-            if (decisionLevel() == 0 && !simplify())
-                return l_False;
+            if (decisionLevel() == 0 && !simplify()){
+                printf("here 3\n");
+            	return l_False;
+            }
 
-            if (learnts.size()-nAssigns() >= max_learnts) {
+            if (clause_deletion && learnts.size()-nAssigns() >= max_learnts) {
                 // Reduce the set of learnt clauses:
+            	printf("reduce %f\n", max_learnts);
                 reduceDB();
 #if RAPID_DELETION
                 max_learnts += 500;
@@ -863,7 +937,9 @@ lbool Solver::search(int nof_conflicts)
             Lit next = lit_Undef;
             while (decisionLevel() < assumptions.size()){
                 // Perform user provided assumption:
-                Lit p = assumptions[decisionLevel()];
+                Lit p = lit_Undef;
+                 p = assumptions[decisionLevel()];
+                assert (p != lit_Undef);
                 if (value(p) == l_True){
                     // Dummy decision level:
                     newDecisionLevel();
@@ -879,11 +955,38 @@ lbool Solver::search(int nof_conflicts)
             if (next == lit_Undef){
                 // New variable decision:
                 decisions++;
-                next = pickBranchLit();
+				next = pickBranchLit();
+				if(lsr_verb)
+					printf("Next %s%d\n", sign(next) ? "-" : "", var(next));
 
-                if (next == lit_Undef)
+                if (next == lit_Undef){
+                	//if(!found_units.empty())
+                	//	cancelUntil(0);
+                	final_state = createSolverState(); // takes care of SAT and UNDEF cases
+					printState(final_state);
+                	if(trail.size() != nVars()){
+
+						//if(existingState(curr_state)){
+						//	printf("FAILED: existing\n");
+						//	exit(1);
+						//}
+						//else
+						//	states.push_back(curr_state);
+                		cancelUntil(0);
+                		return l_Undef;
+                	}
+
+                    vec<Lit> clause;
+                    for (int i = 0; i < nVars(); i++)
+                      clause.push(mkLit(i,false));
+
+
+                    //printLSR();
+
                     // Model found:
+                    printf("About to SAT\n");
                     return l_True;
+                  }
             }
 
             // Increase decision level and enqueue 'next'
@@ -944,8 +1047,11 @@ lbool Solver::solve_()
 {
     model.clear();
     conflict.clear();
-    if (!ok) return l_False;
-
+    if (!ok){
+    	final_state = createSolverState();
+    	printf("Here 4\n");
+    	return l_False;
+    }
     solves++;
 
 #if RAPID_DELETION
@@ -971,8 +1077,16 @@ lbool Solver::solve_()
     // Search:
     int curr_restarts = 0;
     while (status == l_Undef){
-        double rest_base = luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts);
-        status = search(rest_base * restart_first);
+    	double rest_base;
+		if(always_restart)
+			rest_base = 1;
+		else if(never_restart)
+			rest_base = -1;
+		else
+			rest_base = (luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts)) * restart_first;
+		status = search(rest_base);
+		// printf("status!\n");
+		break; // todo might have to change here for lsr
         if (!withinBudget()) break;
         curr_restarts++;
     }
@@ -980,13 +1094,25 @@ lbool Solver::solve_()
     if (verbosity >= 1)
         printf("===============================================================================\n");
 
-
     if (status == l_True){
         // Extend & copy model:
         model.growTo(nVars());
         for (int i = 0; i < nVars(); i++) model[i] = value(i);
-    }else if (status == l_False && conflict.size() == 0)
-        ok = false;
+    }else if (status == l_False && conflict.size() == 0){
+    	printf("About to UNSAT\n");
+    	//printf("Status: %d\n", status);
+    	final_state = createSolverState();
+    	//printf("Status: %d\n", status);
+
+    	printState(final_state);
+    	//printf("Status: %d\n", status);
+
+    	ok = false;
+    }
+
+    // clean up
+
+
 
     cancelUntil(0);
     return status;
