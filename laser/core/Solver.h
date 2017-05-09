@@ -285,6 +285,47 @@ public:
     vec<char> needed_lsr;
     const char* lsr_final_deps_file;
 
+
+    void produce_weak_e_hitting_set_formula(const char* file_name){
+    	FILE* out_file = fopen(file_name, "wb");
+
+    	int num_orig_clauses = 0;
+    	// count the number of original clauses
+    	for(int i = 0; i < clauses.size(); i++){
+			Clause& c = ca[clauses[i]];
+			if(!c.learnt())
+				num_orig_clauses++;
+    	}
+    	int top = nVars() * 2;
+    	// output header of wcnf formula
+    	fprintf(out_file, "p wcnf %d %d %d\n", nVars(), nVars() + num_orig_clauses, top);
+
+    	// output weight one clause for every var (trying to minimize #vars set to true)
+    	for(int i = 0; i < nVars(); i++){
+    		fprintf(out_file, "1 %d 0\n", -(i+1));
+    	}
+
+    	// for every original clause, output the hard clause restricted to all satisfied vars under the current
+    	// assignment.
+		for(int i = 0; i < clauses.size(); i++){
+			Clause& c = ca[clauses[i]];
+			if(c.learnt())
+				continue;
+			fprintf(out_file, "%d ", top);
+			for (int j = 0; j < c.size(); j++){
+				Lit p = c[j];
+				Var v = var(p);
+				if((sign(p) && model[v] == l_False) || (!sign(p) && model[v] == l_True)){
+					//printf("%d %d\n", c[j], value(c[j]));
+					Var v = var(c[j]);
+					fprintf(out_file, "%d ", v + 1);
+				}
+			}
+			fprintf(out_file, "0\n");
+		}
+		fclose(out_file);
+    }
+
 protected:
 
     // LASER misc:

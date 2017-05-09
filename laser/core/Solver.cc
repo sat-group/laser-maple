@@ -61,7 +61,7 @@ static BoolOption    opt_never_restart      (_cat, "never-restart",        "Rest
 static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove clauses.", false);
 
 // lsr computation types
-static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", false);
+static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", true);
 
 // structure logging
 static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");

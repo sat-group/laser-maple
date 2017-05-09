@@ -199,6 +199,11 @@ int main(int argc, char** argv)
         StringOption backbone_metrics_out("LASER","bb-metrics-out", "Output backbone-based metrics to given file");
         //StringOption avg_lsr_out("LASER","avg-lsr-out", "Output average lsr to given file");
 
+        // hitting set file for FM weak-E backdoors
+        StringOption hitting_set_out("LASER","hitting-set-out", "Output hitting set formula for FM weak-E backdoors");
+
+
+
 
         parseOptions(argc, argv, true);
         
@@ -518,6 +523,12 @@ int main(int argc, char** argv)
                 fprintf(res, "INDET\n");
             fclose(res);
         }
+
+        if(hitting_set_out && ret == l_True){
+        	const char* file_name = hitting_set_out;
+        	S.produce_weak_e_hitting_set_formula(file_name);
+        }
+
 
 #ifdef NDEBUG
         exit(ret == l_True ? 10 : ret == l_False ? 20 : 0);     // (faster than "return", which will invoke the destructor for 'Solver')
