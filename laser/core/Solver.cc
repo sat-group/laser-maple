@@ -61,7 +61,11 @@ static BoolOption    opt_never_restart      (_cat, "never-restart",        "Rest
 static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove clauses.", false);
 
 // lsr computation types
-static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", false);
+static BoolOption    opt_clause_and_conflict_side_lsr      (_cat, "conf-side-lsr",        "Dependencies of a clause are the clause itself and the dependents on the conflict side.", true);
+static IntOption     opt_lsr_reduce     (_cat, "lsr-red",      "Use an LSR-centric clause deletion policy. 0) off; 1) sort based on LSR; 2) sort based on LSR-spread", 0, IntRange(0, 2));
+static IntOption     opt_initial_max_learnts     (_cat, "init-max-learnts", "The initial maximum learnt clause database size", 2000, IntRange(1, INT32_MAX));
+static IntOption     opt_learnt_db_bump     (_cat, "db-bump", "How much to bump the clause database size at each reduction", 500, IntRange(1, INT32_MAX));
+
 
 // structure logging
 static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");
@@ -155,6 +159,9 @@ Solver::Solver() :
   , restart_immediately(false)
   , just_restarted(false)
   , never_gc(opt_never_gc)
+  , lsr_deletion_policy(opt_lsr_reduce)
+  , initial_max_learnts(opt_initial_max_learnts)
+  , db_bump (opt_learnt_db_bump)
   , structure_logging(false)
   , cmty_logging(false)
 
@@ -1204,6 +1211,9 @@ int min(int a, int b) {
     return a < b ? a : b;
 }
 
+
+
+
 /*_________________________________________________________________________________________________
 |
 |  reduceDB : ()  ->  [void]
@@ -1228,11 +1238,37 @@ struct reduceDB_lt {
         return ca[x].size() > 2 && (ca[y].size() == 2 || ca[x].activity() < ca[y].activity()); } 
 #endif
 };
+
+struct reduceDB_lsr_size {
+    ClauseAllocator& ca;
+    vec<double>& activity;
+    reduceDB_lsr_size(ClauseAllocator& ca_,vec<double>& activity_) : ca(ca_), activity(activity_) {}
+    bool operator () (CRef x, CRef y) {
+        return (ca[x].rsize() - ca[x].size()) > (ca[y].rsize() - ca[y].size());
+    }
+};
+
+struct reduceDB_lsr_spread {
+    ClauseAllocator& ca;
+    vec<double>& activity;
+    reduceDB_lsr_spread(ClauseAllocator& ca_,vec<double>& activity_) : ca(ca_), activity(activity_) {}
+    bool operator () (CRef x, CRef y) {
+    	printf("Need to implement LSR spread \n exiting");
+    	exit(1);
+        return (ca[x].rsize() - ca[x].size()) > (ca[y].rsize() - ca[y].size());
+    }
+};
+
 void Solver::reduceDB()
 {
     int     i, j;
 #if LBD_BASED_CLAUSE_DELETION
-    sort(learnts, reduceDB_lt(ca, activity));
+    if(lsr_deletion_policy == 0)
+    	sort(learnts, reduceDB_lt(ca, activity));
+    else if(lsr_deletion_policy == 1)
+    	sort(learnts, reduceDB_lsr_size(ca, activity));
+    else if(lsr_deletion_policy == 2)
+    	sort(learnts, reduceDB_lsr_spread(ca, activity));
 #else
     double  extra_lim = cla_inc / learnts.size();    // Remove any clause below this activity
     sort(learnts, reduceDB_lt(ca));
@@ -1754,7 +1790,7 @@ lbool Solver::solve_()
     solves++;
 
 #if RAPID_DELETION
-    max_learnts               = 2000;
+    max_learnts               = initial_max_learnts; // 2000
 #else
     max_learnts               = nClauses() * learntsize_factor;
 #endif

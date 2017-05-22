@@ -145,6 +145,9 @@ public:
     bool always_restart;
     bool never_restart;
     bool never_gc;
+    int lsr_deletion_policy;
+    int initial_max_learnts;
+    int db_bump;
     bool clause_and_conflict_side_lsr;
 
     // Statistics: (read-only member variable)
