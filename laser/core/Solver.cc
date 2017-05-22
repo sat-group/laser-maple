@@ -668,8 +668,13 @@ void Solver::getDecisionsFinalUnsat(CRef cr, vec<Lit>& decisions)
     }
     else if (reason(x) == CRef_Undef){
       // Decision variable
-    	printf("Should never have a decision in final conflict. Error\n");
-    	exit(1);
+    	if(level(x) > 0){
+			printf("Should never have a decision in final conflict (unless level 0 due to no-pre). Error\n");
+			printf("%s%d ", sign(p)?"-":"", x);
+			printf("Level %d\n", level(x));
+			exit(1);
+    	}
+    	continue;
     }
     // can hit this case for an assumption now
     if(reason(x) != CRef_Undef){
