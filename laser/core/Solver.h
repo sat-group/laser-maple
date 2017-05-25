@@ -279,6 +279,12 @@ public:
     const char* lsr_frequency_file;
     vec<int> lsr_frequency;
 
+    const char* clause_graph_file;
+    FILE* clause_graph;
+    unsigned clause_graph_count;
+    bool record_clause_graph;
+
+
     FILE* avg_clause_lsr_out;
     int all_learnts;
     double total_clause_lsr_weight;
@@ -414,10 +420,10 @@ protected:
     bool     enqueue          (Lit p, CRef from = CRef_Undef);                         // Test if fact 'p' contradicts current state, enqueue otherwise.
     CRef     propagate        ();                                                      // Perform unit propagation. Returns possibly conflicting clause.
     void     cancelUntil      (int level);                                             // Backtrack until a certain level.
-    void     analyze          (CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, int& out_btlevel);    // (bt = backtrack)
+    void     analyze          (CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, vec<unsigned>& clause_deps, vec<unsigned>& min_deps, int& out_btlevel);    // (bt = backtrack)
 
     void     analyzeFinal     (Lit p, vec<Lit>& out_conflict);                         // COULD THIS BE IMPLEMENTED BY THE ORDINARIY "analyze" BY SOME REASONABLE GENERALIZATION?
-    bool     litRedundant     (Lit p, uint32_t abstract_levels,  vec<Lit>& lsr_conflict_side);                       // (helper method for 'analyze()')
+    bool     litRedundant     (Lit p, uint32_t abstract_levels,  vec<Lit>& lsr_conflict_side, vec<unsigned>& min_deps);                       // (helper method for 'analyze()')
 
     template<class V> int lbd (const V& clause) {
         lbd_calls++;

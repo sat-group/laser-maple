@@ -71,6 +71,11 @@ static IntOption     opt_learnt_db_bump     (_cat, "db-bump", "How much to bump 
 static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");
 static StringOption   opt_lsr_frequency("LASER","lsr-frequency-out","Record how many times each variable is a dependent of a clause.");
 
+// space complexity graph
+static StringOption   opt_clause_graph("LASER","clause-graph-out","Record the clause dependencies and dump to file.");
+
+
+
 
 //lsr maxsat for SAT final deps
 static StringOption opt_lsr_final_deps("LASER", "lsr-final-deps", "Smaller LSR for SAT case. Don't look at deps of propagated vars, just add it.");
@@ -166,6 +171,7 @@ Solver::Solver() :
   , cmty_logging(false)
 
   , all_learnts(0)
+  , clause_graph_count(1)
   , total_clause_lsr_weight(0)
   , num_backbone_flips(0)
   , num_backbone_subsumed_clauses(0)
@@ -196,6 +202,17 @@ Solver::Solver() :
 	  record_lsr_frequency = false;
 	  lsr_frequency_file = NULL;
   }
+  if(opt_clause_graph){
+	  record_clause_graph = true;
+	  clause_graph_file = opt_clause_graph;
+	  clause_graph = fopen(clause_graph_file, "wb");
+  }
+  else{
+	  record_clause_graph = false;
+	  clause_graph_file = NULL;
+  }
+
+
   lsr_num = false;
 } 
 
@@ -206,6 +223,8 @@ Solver::~Solver()
 		fclose(certificate_clauses_out);
 
 	}
+	if(record_clause_graph)
+		fclose(clause_graph);
 }
 
 
@@ -274,11 +293,11 @@ bool Solver::addClause_(vec<Lit>& ps)
         uncheckedEnqueue(ps[0]);
         return ok = (propagate() == CRef_Undef);
     }else{
-        CRef cr = ca.alloc(ps, false);
+        CRef cr = ca.alloc(ps, false, clause_graph_count);
+        clause_graph_count++;
         clauses.push(cr);
         attachClause(cr);
     }
-
     return true;
 }
 
@@ -447,7 +466,7 @@ Lit Solver::pickBranchLit()
 |        rest of literals. There may be others from the same level though.
 |  
 |________________________________________________________________________________________________@*/
-void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, int& out_btlevel)
+void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_side, vec<unsigned>& clause_deps, vec<unsigned>& min_deps, int& out_btlevel)
 {
     int pathC = 0;
     Lit p     = lit_Undef;
@@ -463,6 +482,8 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
     do{
         assert(confl != CRef_Undef); // (otherwise should be UIP)
         Clause& c = ca[confl];
+
+        clause_deps.push(c.graph_index());
 
         // lsr -- grab the vars that any learnt depends upon
         if(c.learnt()){
@@ -522,7 +543,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
             abstract_level |= abstractLevel(var(out_learnt[i])); // (maintain an abstraction of levels involved in conflict)
 
         for (i = j = 1; i < out_learnt.size(); i++)
-            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level, lsr_conflict_side))
+            if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i], abstract_level, lsr_conflict_side, min_deps))
                 out_learnt[j++] = out_learnt[i];
         
     }else if (ccmin_mode == 1){
@@ -544,10 +565,15 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
 					  }
 					}
 				}
+				bool flag = false;
                 for (int k = 1; k < c.size(); k++)
                     if (!seen[var(c[k])] && level(var(c[k])) > 0){
                         out_learnt[j++] = out_learnt[i];
+                        flag = true;
                         break; }
+                // only add the clause to the deps if it contributed to minimization.
+                if(!flag) // the lit was not included in out_learnt
+                	min_deps.push(c.graph_index());
             }
         }
     }else
@@ -1023,7 +1049,7 @@ Lit Solver::checkAbsorptionStatus(){
 
 // Check if 'p' can be removed. 'abstract_levels' is used to abort early if the algorithm is
 // visiting literals at levels that cannot be removed later.
-bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflict_side)
+bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflict_side, vec<unsigned>& min_deps)
 {
     analyze_stack.clear(); analyze_stack.push(p);
     int top = analyze_toclear.size();
@@ -1039,6 +1065,8 @@ bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflic
 			  }
 			}
 		}
+		min_deps.push(c.graph_index());
+
         for (int i = 1; i < c.size(); i++){
             Lit p  = c[i];
             if (!seen[var(p)] && level(var(p)) > 0){
@@ -1058,7 +1086,6 @@ bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflic
 
     return true;
 }
-
 
 /*_________________________________________________________________________________________________
 |
@@ -1405,8 +1432,13 @@ lbool Solver::search(int nof_conflicts)
 
             learnt_clause.clear();
             vec<Lit> decision_clause;
+            vec<unsigned> clause_deps;
+            vec<unsigned> min_deps;
+
             // analyze will now put the dependency lits from the conflict side in decision_clause
-            analyze(confl, learnt_clause, decision_clause, backtrack_level);
+            analyze(confl, learnt_clause, decision_clause, clause_deps, min_deps, backtrack_level);
+
+
 
             if(cmty_logging){
             	int s = learnt_clause.size();
@@ -1495,6 +1527,22 @@ lbool Solver::search(int nof_conflicts)
                 //unit_lsr.push(cr);
 
                 //printf("variable %d, assumption %d\n",var(learnt_clause[0])+1,assumption(var(learnt_clause[0])));
+                if(record_clause_graph){
+					fprintf(clause_graph, "%d ", clause_graph_count);
+					for (int j = 0; j < learnt_clause.size(); j++)
+						fprintf(clause_graph, "%s%d ", sign(learnt_clause[j])?"-":"", var(learnt_clause[j])+1);
+					fprintf(clause_graph, "0 ");
+					for(int i = 0; i < clause_deps.size(); i++){
+						fprintf(clause_graph, "%d ", clause_deps[i]);
+					}
+					fprintf(clause_graph, "0 ");
+					for(int i = 0; i < min_deps.size(); i++){
+						fprintf(clause_graph, "%d ", min_deps[i]);
+					}
+					fprintf(clause_graph, "0\n");
+
+					clause_graph_count++;
+				}
 
                 cancelUntil(backtrack_level);
 
@@ -1527,17 +1575,38 @@ lbool Solver::search(int nof_conflicts)
                 for (int i = 0; i < decision_clause.size(); i++)
                   learnt_clause.push(decision_clause[i]);
 
-                CRef cr = ca.alloc(learnt_clause, size, learnt_clause.size(), true);
+                CRef cr = ca.alloc(learnt_clause, size, learnt_clause.size(), true, clause_graph_count);
                 learnts.push(cr);
                 attachClause(cr);
 #if LBD_BASED_CLAUSE_DELETION
                 Clause& clause = ca[cr];
+
+                if(record_clause_graph){
+					fprintf(clause_graph, "%d ", clause.graph_index());
+					for (int j = 0; j < clause.size(); j++)
+						fprintf(clause_graph, "%s%d ", sign(clause[j])?"-":"", var(clause[j])+1);
+					fprintf(clause_graph, "0 ");
+					for(int i = 0; i < clause_deps.size(); i++){
+						fprintf(clause_graph, "%d ", clause_deps[i]);
+					}
+					fprintf(clause_graph, "0 ");
+					for(int i = 0; i < min_deps.size(); i++){
+						fprintf(clause_graph, "%d ", min_deps[i]);
+					}
+					fprintf(clause_graph, "0\n");
+
+					clause_graph_count++;
+				}
+
                 clause.activity() = lbd(clause);
 #else
                 claBumpActivity(ca[cr]);
 #endif
                 uncheckedEnqueue(learnt_clause[0], cr);
             }
+
+
+
 
             if(avg_clause_lsr_out){
 				all_learnts++;
@@ -1807,7 +1876,7 @@ lbool Solver::solve_()
         printf("LBD Based Clause Deletion : %d\n", LBD_BASED_CLAUSE_DELETION);
         printf("Rapid Deletion : %d\n", RAPID_DELETION);
         printf("Almost Conflict : %d\n", ALMOST_CONFLICT);
-        printf("Anti Exploration : %d\n", ANTI_EXPLORATION);
+        printf("Anti  Exploration : %d\n", ANTI_EXPLORATION);
         printf("============================[ Search Statistics ]==============================\n");
         printf("| Conflicts |          ORIGINAL         |          LEARNT          | Progress |\n");
         printf("|           |    Vars  Clauses Literals |    Limit  Clauses Lit/Cl |          |\n");
@@ -1815,6 +1884,18 @@ lbool Solver::solve_()
     }
 
     // Search:
+    if(record_clause_graph){
+    	// fprintf(clause_graph, "o %d\n", clauses.size());
+    	for(int i = 0; i < clauses.size(); i++){
+    		Clause& c = ca[clauses[i]];
+    		fprintf(clause_graph, "%d ", c.graph_index());
+			for (int j = 0; j < c.size(); j++)
+				fprintf(clause_graph, "%s%d ", sign(c[j])?"-":"", var(c[j])+1);
+			fprintf(clause_graph, "0 0 0\n");
+			// clause_graph_count++;
+		}
+    }
+
     int curr_restarts = 0;
     while (status == l_Undef){
     	double rest_base;

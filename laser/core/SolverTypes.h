@@ -163,19 +163,21 @@ class Clause {
         unsigned reloced   : 1;
         unsigned size      : 27;
         unsigned rsize     : 32; 
+        unsigned graph_index : 32;
     }                            header;
     union { Lit lit; Act act; uint32_t abs; CRef rel; } data[0];
 
     friend class ClauseAllocator;
 
     template<class V>
-    Clause(const V& ps, bool use_extra, int size, int rsize, bool learnt) {
+    Clause(const V& ps, bool use_extra, int size, int rsize, bool learnt, unsigned graph_index) {
         header.mark      = 0;
         header.learnt    = learnt;
         header.has_extra = use_extra;
         header.reloced   = 0;
         header.size      = size;
         header.rsize     = rsize;
+        header.graph_index = graph_index;
 
         for (int i = 0; i < rsize; i++) 
             data[i].lit = ps[i];
@@ -189,7 +191,7 @@ class Clause {
 
     // NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
     template<class V>
-    Clause(const V& ps, bool use_extra, bool learnt) {
+    Clause(const V& ps, bool use_extra, bool learnt, unsigned graph_index) {
         assert (learnt == false);
         
         int size = ps.size();
@@ -201,6 +203,7 @@ class Clause {
         header.reloced   = 0;
         header.size      = size;
         header.rsize     = rsize;
+        header.graph_index = graph_index;
 
         if (learnt)
             assert(size < rsize);
@@ -224,6 +227,7 @@ public:
         data[header.rsize].abs = abstraction;  }
 
 
+    unsigned     graph_index ()      const   { return header.graph_index; }
     int          size        ()      const   { return header.size; }
     int          rsize       ()      const   { return header.rsize; }
     void         shrink      (int i)         { assert(i <= rsize()); if (header.has_extra) data[header.rsize-i] = data[header.rsize]; header.rsize -= i; }
@@ -272,7 +276,7 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
         RegionAllocator<uint32_t>::moveTo(to); }
 
     template<class Lits>
-    CRef alloc(const Lits& ps, int size, int rsize, bool learnt = false)
+    CRef alloc(const Lits& ps, int size, int rsize, bool learnt = false, unsigned graph_index = 0)
     {
         assert (learnt == true);
         assert(sizeof(Lit)      == sizeof(uint32_t));
@@ -282,13 +286,13 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
         CRef cid = CRef_Undef;
         cid = RegionAllocator<uint32_t>::alloc(clauseWord32Size(rsize, use_extra));
 
-        new (lea(cid)) Clause(ps, use_extra, size, rsize, learnt);    
+        new (lea(cid)) Clause(ps, use_extra, size, rsize, learnt, graph_index);
         
         return cid;
     }
 
     template<class Lits>
-    CRef alloc(const Lits& ps, bool learnt = false)
+    CRef alloc(const Lits& ps, bool learnt = false, unsigned graph_index = 0)
     {
         assert (learnt == false);
         assert(sizeof(Lit)      == sizeof(uint32_t));
@@ -296,7 +300,7 @@ class ClauseAllocator : public RegionAllocator<uint32_t>
         bool use_extra = learnt | extra_clause_field;
 
         CRef cid = RegionAllocator<uint32_t>::alloc(clauseWord32Size(ps.size(), use_extra));
-        new (lea(cid)) Clause(ps, use_extra, learnt);
+        new (lea(cid)) Clause(ps, use_extra, learnt, graph_index);
 
         return cid;
     }
