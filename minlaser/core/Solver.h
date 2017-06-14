@@ -156,6 +156,7 @@ public:
     bool clause_deletion;
     bool lsr_verb;
     bool lsr_mode;
+    vec<Lit> trivial_units; // important if -no-pre is used, need to remember the unit clauses in the original formula
     const char* replay_bd_out_file;
 
     // Statistics: (read-only member variable)
@@ -413,8 +414,8 @@ public:
     		s->mLearnts->push_back(*v);
     		//delete v;
     	}
-    	if(s->mLearnts->size())
-    		printf("LSIZE %d\n", s->mLearnts->size());
+    	//if(s->mLearnts->size())
+    	//	printf("LSIZE %d\n", s->mLearnts->size());
 
     	s->sortState();
 
@@ -442,25 +443,25 @@ public:
     	//printf("STATE\n");
 		printf("STATE: (%d learnts), \n   AllDecisions: [", s->mLearnts->size());
 		for(unsigned i = 0; i < s->mAllDecisions->size(); i++){
-			printf("%s%d ", sign(s->mAllDecisions->at(i)) ? "-" : "", var((*(s->mAllDecisions))[i]));
+			printf("%s%d ", sign(s->mAllDecisions->at(i)) ? "-" : "", var((*(s->mAllDecisions))[i]) + 1);
 		}
 		printf("], \n   Units: [");
 		for(unsigned i = 0; i < s->mFoundUnits->size(); i++){
-			printf("%s%d ", sign(s->mFoundUnits->at(i)) ? "-" : "", var((*(s->mFoundUnits))[i]));
+			printf("%s%d ", sign(s->mFoundUnits->at(i)) ? "-" : "", var((*(s->mFoundUnits))[i]) + 1);
 		}
 		printf("], \n   Trail: [");
 		for(unsigned i = 0; i < s->mTrail->size(); i++){
-			printf("%s%d ", sign(s->mTrail->at(i)) ? "-" : "", var((*(s->mTrail))[i]));
+			printf("%s%d ", sign(s->mTrail->at(i)) ? "-" : "", var((*(s->mTrail))[i]) + 1);
 		}
 		printf("], \n   Next: ");
 		if(!s->mNext->empty())
-			printf("%s%d", sign(s->mNext->at(s->mNextIndex))? "-":"", var(s->mNext->at(s->mNextIndex)));
+			printf("%s%d", sign(s->mNext->at(s->mNextIndex))? "-":"", var(s->mNext->at(s->mNextIndex)) + 1);
 		printf("\n");
 		printf("LEARNTS:\n");
 		for(unsigned i = 0; i < s->mLearnts->size(); i++){
 			std::vector<Lit> v = (*(s->mLearnts))[i];
 			for(unsigned j = 0; j < v.size(); j++){
-				printf("%s%d ", sign(v[j])?"-":"", var(v[j]));
+				printf("%s%d ", sign(v[j])?"-":"", var(v[j]) + 1);
 			}
 			printf("\n");
 		}

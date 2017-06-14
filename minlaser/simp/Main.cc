@@ -191,8 +191,9 @@ void initializeSolver(SimpSolver& S, Solver& s2, vec<Var>& vars){
 	for(int i = 0; i < S.nClauses(); i++){
 		Clause* cl = S.get_clause(i);
 		vec<Lit> clause;
-		for (int j = 0; j < cl->size(); j++)
+		for (int j = 0; j < cl->size(); j++){
 			clause.push((*cl)[j]);
+		}
 		s2.addClause(clause);
 	}
 }
@@ -201,17 +202,21 @@ bool processPotentialBD(SimpSolver& S, vec<Var>& vars){
 	if(S.lsr_verb){
 		printf("Processing: ");
 		for(int i = 0; i < vars.size(); i++)
-			printf("%d ", vars[i]);
+			printf("%d ", vars[i] + 1);
 		printf("\n");
 	}
 	printf("Processing: ");
-			for(int i = 0; i < vars.size(); i++)
-				printf("%d ", vars[i]);
-			printf("\n");
+	for(int i = 0; i < vars.size(); i++)
+		printf("%d ", vars[i] + 1);
+	printf("\n");
 
 	std::queue<Solver::SolverState*> Q;
 	Solver::SolverState* initial_state = new Solver::SolverState;
     std::vector<Solver::SolverState*> seen_states;
+
+    for(int i = 0; i < S.trivial_units.size(); i++){
+    	initial_state->mFoundUnits->push_back(S.trivial_units[i]);
+    }
 
     int largest_trail = 0;
 

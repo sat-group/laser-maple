@@ -287,10 +287,18 @@ bool Solver::addClause_(vec<Lit>& ps)
             ps[j++] = p = ps[i];
     ps.shrink(i - j);
 
+
     if (ps.size() == 0)
         return ok = false;
     else if (ps.size() == 1){
         uncheckedEnqueue(ps[0]);
+        if(record_clause_graph){
+			fprintf(clause_graph, "%d ", clause_graph_count);
+			for (int j = 0; j < ps.size(); j++)
+				fprintf(clause_graph, "%s%d ", sign(ps[j])?"-":"", var(ps[j])+1);
+			fprintf(clause_graph, "0 0 0\n");
+			clause_graph_count++;
+		}
         return ok = (propagate() == CRef_Undef);
     }else{
         CRef cr = ca.alloc(ps, false, clause_graph_count);

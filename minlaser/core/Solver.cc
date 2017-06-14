@@ -223,6 +223,7 @@ bool Solver::addClause_(vec<Lit>& ps)
     if (ps.size() == 0)
         return ok = false;
     else if (ps.size() == 1){
+    	trivial_units.push(ps[0]);
         uncheckedEnqueue(ps[0]);
         return ok = (propagate() == CRef_Undef);
     }else{
@@ -556,12 +557,12 @@ void Solver::analyzeFinal(Lit p, vec<Lit>& out_conflict)
 void Solver::uncheckedEnqueue(Lit p, CRef from)
 {
 	if(lsr_verb){
-		printf("Enqueue: %s%d\n", sign(p)?"-":"", var(p));
+		printf("Enqueue: %s%d\n", sign(p)?"-":"", var(p) + 1);
 		if(from != CRef_Undef){
 			Clause& c = ca[from];
 			printf("From ");
 			for(int i = 0; i < c.size(); i++){
-				printf("%s%d ", sign(c[i])?"-":"", var(c[i]));
+				printf("%s%d ", sign(c[i])?"-":"", var(c[i]) + 1);
 			}
 			printf("\n");
 		}
@@ -836,7 +837,7 @@ lbool Solver::search(int nof_conflicts)
                   return l_False;
                 }
                 if(lsr_verb)
-                	printf("UNIT: %s%d\n", sign(learnt_clause[0])? "-" : "", var(learnt_clause[0]));
+                	printf("UNIT: %s%d\n", sign(learnt_clause[0])? "-" : "", var(learnt_clause[0]) + 1);
                 found_units.push_back(learnt_clause[0]);
                 just_learnt_unit = true;
                 //setAssumption(var(learnt_clause[0]), true);
@@ -875,12 +876,12 @@ lbool Solver::search(int nof_conflicts)
                 if(lsr_verb){
 					printf("Learnt: ");
 					for(int i = 0; i < learnt_clause.size(); i++){
-						printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]));
+						printf("%s%d ", sign(learnt_clause[i])?"-":"", var(learnt_clause[i]) + 1);
 					}
 					printf("\n");
 					printf("Trail: ");
 					for(int i = 0; i < trail.size(); i++){
-						printf("%s%d ", sign(trail[i])?"-":"", var(trail[i]));
+						printf("%s%d ", sign(trail[i])?"-":"", var(trail[i]) + 1);
 					}
 					printf("\n");
                 }
@@ -957,7 +958,7 @@ lbool Solver::search(int nof_conflicts)
                 decisions++;
 				next = pickBranchLit();
 				if(lsr_verb)
-					printf("Next %s%d\n", sign(next) ? "-" : "", var(next));
+					printf("Next %s%d\n", sign(next) ? "-" : "", var(next) + 1);
 
                 if (next == lit_Undef){
                 	//if(!found_units.empty())

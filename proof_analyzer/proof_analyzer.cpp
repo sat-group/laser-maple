@@ -209,10 +209,10 @@ void ordered_proof_space(Graph& graph, vector<int>& ordered_useful_clauses, int&
 	 * For each node at index t, compute the number of nodes at index <= t that are used at index >= t.
 	 * The space of the proof is the max over all nodes.
 	 *
-	 * graph:               adjacency-list based DAG with edges pointing to clauses used to derive each clause
-	 *	 	 	 	        assumed to be pruned at this point
-	 * bot_clause:          index of the final empty clause
-	 * proof_ordered_space: the space of the proof
+	 * graph:                  adjacency-list based DAG with edges pointing to clauses used to derive each clause
+	 *	 	 	 	           assumed to be pruned at this point
+	 * ordered_useful_clauses: vector of clauses ordered by derivation timestamps
+	 * proof_ordered_space:    the space of the proof
 	 */
 	set<int> live_clauses;
 	proof_ordered_space = 0;
@@ -231,7 +231,77 @@ void ordered_proof_space(Graph& graph, vector<int>& ordered_useful_clauses, int&
 }
 
 
-//========================== END PROOF ANALYSES =================================================
+bool verify_proof(Graph graph, vector<int> ordered_useful_clauses, map<int, vector<int> > clause_literals){
+	/*
+	 * Perform basic sanity checks on the proof:
+	 *   1) the final clause is indeed empty
+	 *   2) for any learn clause, we can derive it through resolution from its parents
+	 *
+	 * graph:                  adjacency-list based DAG with edges pointing to clauses used to derive each clause
+	 *	 	 	 	           assumed to be pruned at this point
+	 * ordered_useful_clauses: vector of clauses ordered by derivation timestamps
+	 * clause_literals:        maps each clause ID to its actual literals
+	 */
+	set<int> resolvent;
+	vector<int> expected_clause;
+	vector<int> curr_clause;
+	int clause_id;
+	for (auto it = ordered_useful_clauses.rbegin(); it != ordered_useful_clauses.rend(); ++it)
+	{
+		clause_id = *it;
+		expected_clause = clause_literals[clause_id];
+		if(it == ordered_useful_clauses.rbegin() && expected_clause.size() > 0)
+			cout <<"Warning: final clause is not empty."<<endl;
+		for(auto c: graph[clause_id]){
+			curr_clause = clause_literals[c];
+			for(int l: curr_clause){
+				if(resolvent.find(-l) != resolvent.end()){
+					resolvent.erase(-l);
+				}
+				else{
+					resolvent.insert(l);
+				}
+			}
+		}
+		bool failed = false;
+		if(resolvent.size() != expected_clause.size()){
+			failed = true;
+		}
+		else{
+			for(int i: expected_clause){
+				if(resolvent.find(i) == resolvent.end()){
+					failed = true;
+					break;
+				}
+			}
+		}
+		if(failed){
+			cout<<"Proof failed."<<endl;
+			cout<<"Expected clause("<<clause_id<<"): ";
+			for(int i: expected_clause)
+				cout<<i<<" ";
+			cout<<endl;
+			cout<<"Resolved clause: ";
+			for(int i: resolvent)
+				cout<<i<<" ";
+			cout<<endl;
+			cout<<"Clauses resolved upon:"<<endl;
+			for(auto c: graph[clause_id]){
+				curr_clause = clause_literals[c];
+				cout<<c<<") ";
+				for(int l: curr_clause){
+					cout<<l<<" ";
+				}
+				cout<<endl;
+			}
+			exit(1);
+		}
+
+	}
+	return true;
+}
+
+//========================== END PROOF   =================================================
 
 
 int main(int argc, char** argv){
@@ -252,6 +322,11 @@ int main(int argc, char** argv){
 	unused_clauses = total_clauses - proof_length;
 	prune_useless_clauses(graph, useful_clauses);
 	process_graph_file_p2(proof_file_name, useful_clauses, clause_literals, proof_width);
+	bool verified = verify_proof(graph, ordered_useful_clauses, clause_literals);
+	if(!verified){
+		cout<<"Proof is incorrect. Exiting.\n"<<endl;
+		exit(1);
+	}
 	ordered_proof_space(graph, ordered_useful_clauses, proof_ordered_space);
 
 	//cout <<graph.size()<<" "<<useful_clauses.size()<<endl;
