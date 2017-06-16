@@ -1633,8 +1633,9 @@ lbool Solver::search(int nof_conflicts)
 
                 next = pickBranchLit();
                 if(structure_logging){
-                	if(cmty_logging){
+                	if(cmty_logging && var(next) >= 0){
                 		int cmty = var_cmty[var(next)];
+                		//printf("cmtytest %d %d %d\n", cmty_picks.size(), cmty, var(next));
                 		cmty_picks[cmty] = cmty_picks[cmty] + 1;
 
                 	}

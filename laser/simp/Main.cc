@@ -479,6 +479,7 @@ int main(int argc, char** argv)
         			if(S.backbone[i] != 0)
         				backbone_size++;
         		}
+        		printf("backbone size %d\n", backbone_size);
         		printf("NormalizedBackboneFlips %f\n", S.num_backbone_flips / float(backbone_size));
         		printf("NormalizedBackboneSubsumedClauses %f\n", S.num_backbone_subsumed_clauses / float(backbone_size));
         		if(backbone_metrics_out){
