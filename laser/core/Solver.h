@@ -288,6 +288,16 @@ public:
     vec<char> needed_lsr;
     const char* lsr_final_deps_file;
 
+    // popsim experiments
+    bool popsim_branching;
+    bool popsim_failed;
+    int popsim_branching_limit;
+    int popsim_remaining_failures;
+    vec<double> popularity;
+    vec<double> angle;
+    vec<double> popsim_branching_order;
+
+
 protected:
 
     // LASER misc:

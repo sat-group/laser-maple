@@ -199,6 +199,11 @@ int main(int argc, char** argv)
         StringOption backbone_metrics_out("LASER","bb-metrics-out", "Output backbone-based metrics to given file");
         //StringOption avg_lsr_out("LASER","avg-lsr-out", "Output average lsr to given file");
 
+        // popsim experiments
+        StringOption popsim_file("POPSIM","popsim-file", "var, popularity, similarity triples pairs, one based vars");
+        BoolOption   pop_bd_mode("POPSIM","pop-bd-mode","Iteratively expand potential backdoor, ordered by popularity.\n",false);
+        BoolOption   sim_bd_mode("POPSIM","sim-bd-mode","Iteratively expand potential backdoor, ordered by similarity.\n",false);
+
 
         parseOptions(argc, argv, true);
         
@@ -242,6 +247,38 @@ int main(int argc, char** argv)
         if (in == NULL)
             printf("ERROR! Could not open file: %s\n", argc == 1 ? "<stdin>" : argv[1]), exit(1);
         
+        if(popsim_file){
+
+			FILE* ps_file = fopen(popsim_file, "r");
+			if (ps_file == NULL)
+				fprintf(stderr, "could not open file %s\n", (const char*) ps_file), exit(1);
+			int v;
+			double p;
+			double a;
+			//Zero-based
+			while (fscanf(ps_file, "%d %f %f\n", &v, &p, &a) == 3){
+				assert(v == S.popularity.size() + 1);
+				S.popularity.push(p);
+				S.angle.push(a);
+			}
+			fclose(ps_file);
+			if(pop_bd_mode){
+				// vars should always be sorted by popularity, just double check
+				for(int i = 0; i < S.popularity.size() - 1; i++){
+					assert(S.popularity[i] >= S.popularity[i+1]);
+				}
+				for(int i = 0; i < S.popularity.size(); i++){
+					S.popsim_branching_order.push(i);
+				}
+			}
+			if(sim_bd_mode){
+				printf("SIM BD MODE TODO\n");
+				exit(1);
+			}
+			if(pop_bd_mode || sim_bd_mode){
+				S.popsim_branching = true;
+			}
+		}
 
 
         if (S.verbosity > 0){
@@ -277,7 +314,8 @@ int main(int argc, char** argv)
 			fclose(cfile);
 		}
 
-        // lsr verification files
+
+
         if(backbone_file){
         	S.structure_logging = true;
 			S.backbone_logging = true;

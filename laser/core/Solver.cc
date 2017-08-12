@@ -165,6 +165,11 @@ Solver::Solver() :
   , structure_logging(false)
   , cmty_logging(false)
 
+  , popsim_branching(false)
+  , popsim_branching_limit(0)
+  , popsim_remaining_failures(0)
+  , popsim_failed(false)
+
   , all_learnts(0)
   , total_clause_lsr_weight(0)
   , num_backbone_flips(0)
@@ -248,6 +253,8 @@ Var Solver::newVar(bool sign, bool dvar)
     total_actual_rewards.push(0);
     total_actual_count.push(0);
     if(set_decision_vars) dvar = decision[v] ? true : false; // EDXXX could probably be done better...
+    if(popsim_branching)
+    	dvar = false;
     setDecisionVar(v, dvar);
     return v;
 }
@@ -1632,6 +1639,7 @@ lbool Solver::search(int nof_conflicts)
                 //	checkAbsorptionStatus();
 
                 next = pickBranchLit();
+                //printf("picked var: %d\n", var(next));
                 if(structure_logging){
                 	if(cmty_logging && var(next) >= 0){
                 		int cmty = var_cmty[var(next)];
@@ -1653,11 +1661,11 @@ lbool Solver::search(int nof_conflicts)
                 }
 
                 if (next == lit_Undef){
-                	if(set_decision_vars){
+                	if(set_decision_vars || popsim_branching){
                 		bool actually_failed = false;
                 		if(trail.size() != nVars()){
-                			if(verbosity > 0)
-                				printf("Failed %d %d\n", trail.size(), nVars());
+                			//if(verbosity > 0)
+                			//	printf("Failed %d %d\n", trail.size(), nVars());
                 			for(int i = 0; i < nVars(); i++){
 								if(assigns[i] == l_Undef){
 									//printf("%d \n", i);
@@ -1670,6 +1678,11 @@ lbool Solver::search(int nof_conflicts)
 							}
                 			if(actually_failed){
 								cancelUntil(0);
+								if(popsim_branching){
+									//printf("popsim failed\n");
+									popsim_failed = true;
+									popsim_remaining_failures--;
+								}
 								return l_Undef;
                 			}
                 		}
@@ -1818,6 +1831,16 @@ lbool Solver::solve_()
     // Search:
     int curr_restarts = 0;
     while (status == l_Undef){
+
+    	if(popsim_branching){
+    		if(popsim_remaining_failures <= 0){
+				printf("Increasing popsim limit %d\n", popsim_branching_limit);
+				setDecisionVar(popsim_branching_limit, true);
+				popsim_remaining_failures = popsim_branching_limit < 50 ? popsim_branching_limit : 50;
+				popsim_branching_limit++;
+    		}
+    		popsim_failed = false;
+    	}
     	double rest_base;
 		if(always_restart)
 			rest_base = 1;
