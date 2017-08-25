@@ -1675,10 +1675,8 @@ lbool Solver::search(int nof_conflicts)
                 			//	printf("Failed %d %d\n", trail.size(), nVars());
                 			for(int i = 0; i < nVars(); i++){
 								if(assigns[i] == l_Undef){
-									//printf("%d \n", i);
 									vec<Watcher>& pos = watches[mkLit(i, true)];
 									vec<Watcher>& neg = watches[mkLit(i, false)];
-									//printf("w size : %d %d\n", pos.size(), neg.size());
 									if(pos.size() != 0 || neg.size() != 0)
 										actually_failed = true;
 								}
@@ -1686,12 +1684,7 @@ lbool Solver::search(int nof_conflicts)
                 			if(actually_failed){
 								focused_branching_remaining_failures--;
                 				if(embed_lsr){
-									//printf("popsim failed\n");
                 					if(focused_branching_remaining_failures <= 0){
-    									//todo add clause here based on trail
-                						//todo add different ways to create this clause
-                						// avoid level 0 literals
-                						// for now just take the last 2 vars on trail and negate
                 						vec<Lit> fake_learnt;
 										if(embed_lsr_clause_type == 0) // randomly grab literals from the trail
 										{
@@ -1740,27 +1733,8 @@ lbool Solver::search(int nof_conflicts)
 											}
 										}
 
-
-										/*
-										while(fake_learnt.size() < embed_lsr_target_clause_size && s >= 0){
-											int curr_level = level(var(trail[s]));
-	                						if(curr_level == 0)
-	                							break;
-	                						if(fake_learnt.size() == 0){
-												asserting_level = level(var(trail[s]));
-												fake_learnt.push(~trail[s]);
-	                						}
-	                						else if(curr_level != asserting_level){
-	                							fake_learnt.push(~trail[s]);
-	                						}
-	                						s--;
-										}
-										*/
-
-
-
 										assert(fake_learnt.size() > 1);
-										printClause(fake_learnt, true);
+										printClause(fake_learnt, false);
 										cancelUntil(0);
 
 										CRef cr = ca.alloc(fake_learnt, fake_learnt.size(), fake_learnt.size(), true);
