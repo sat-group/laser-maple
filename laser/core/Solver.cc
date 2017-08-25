@@ -68,7 +68,7 @@ static IntOption     opt_learnt_db_bump     (_cat, "db-bump", "How much to bump 
 
 static BoolOption    opt_embed_lsr      ("EMBED_LSR", "embed-lsr", "Given a decision vars file, add enough clauses to make them an LSR-backdoor.", false);
 static IntOption     opt_embed_lsr_target_clause_size ("EMBED_LSR", "embed-lsr-cls-size", "How large to try to make each learnt clause.", 3, IntRange(1, INT32_MAX));
-static IntOption     opt_embed_lsr_clause_type ("EMBED_LSR", "embed-lsr-cls-type", "When branching fails, how should the clause be learnt using the trail? (0 - random, 1 - beginning, 2 -end)", 0, IntRange(0, 2));
+static IntOption     opt_embed_lsr_clause_type ("EMBED_LSR", "embed-lsr-cls-type", "When branching fails, how should the clause be learnt using the trail? (0 - random, 1 - beginning, 2 -end)", 1, IntRange(0, 2));
 
 
 // structure logging
