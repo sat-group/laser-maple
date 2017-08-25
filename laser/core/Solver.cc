@@ -66,6 +66,10 @@ static IntOption     opt_lsr_reduce     (_cat, "lsr-red",      "Use an LSR-centr
 static IntOption     opt_initial_max_learnts     (_cat, "init-max-learnts", "The initial maximum learnt clause database size", 2000, IntRange(1, INT32_MAX));
 static IntOption     opt_learnt_db_bump     (_cat, "db-bump", "How much to bump the clause database size at each reduction", 500, IntRange(1, INT32_MAX));
 
+static BoolOption    opt_embed_lsr      ("EMBED_LSR", "embed-lsr", "Given a decision vars file, add enough clauses to make them an LSR-backdoor.", false);
+static IntOption     opt_embed_lsr_target_clause_size ("EMBED_LSR", "embed-lsr-cls-size", "How large to try to make each learnt clause.", 3, IntRange(1, INT32_MAX));
+static IntOption     opt_embed_lsr_clause_type ("EMBED_LSR", "embed-lsr-cls-type", "When branching fails, how should the clause be learnt using the trail? (0 - random, 1 - beginning, 2 -end)", 0, IntRange(0, 2));
+
 
 // structure logging
 static StringOption   opt_average_clause_lsr_out("LASER","avg-clause-lsr-out","For each learnt, record its lsr size, compute the average. Dump to given file.");
@@ -166,15 +170,17 @@ Solver::Solver() :
   , cmty_logging(false)
 
   , popsim_branching(false)
-  , popsim_branching_limit(0)
-  , popsim_remaining_failures(0)
-  , popsim_failed(false)
+  , focused_branching_failure_limit(0)
+  , focused_branching_remaining_failures(0)
 
   , all_learnts(0)
   , total_clause_lsr_weight(0)
   , num_backbone_flips(0)
   , num_backbone_subsumed_clauses(0)
   , backbone_logging(false)
+  , embed_lsr(opt_embed_lsr)
+  , embed_lsr_target_clause_size(opt_embed_lsr_target_clause_size)
+  , embed_lsr_clause_type(opt_embed_lsr_clause_type)
 {
   //strcpy(lsr_filename,"");
   lsr_filename = NULL;
@@ -1639,6 +1645,7 @@ lbool Solver::search(int nof_conflicts)
                 //	checkAbsorptionStatus();
 
                 next = pickBranchLit();
+                //printf("var %d\n", var(next));
                 //printf("picked var: %d\n", var(next));
                 if(structure_logging){
                 	if(cmty_logging && var(next) >= 0){
@@ -1677,12 +1684,95 @@ lbool Solver::search(int nof_conflicts)
 								}
 							}
                 			if(actually_failed){
-								cancelUntil(0);
-								if(popsim_branching){
+								focused_branching_remaining_failures--;
+                				if(embed_lsr){
 									//printf("popsim failed\n");
-									popsim_failed = true;
-									popsim_remaining_failures--;
+                					if(focused_branching_remaining_failures <= 0){
+    									//todo add clause here based on trail
+                						//todo add different ways to create this clause
+                						// avoid level 0 literals
+                						// for now just take the last 2 vars on trail and negate
+                						vec<Lit> fake_learnt;
+										if(embed_lsr_clause_type == 0) // randomly grab literals from the trail
+										{
+											// copy trail to auxilliary vec randomized
+											vec<Lit> trail_lits;
+											trail_lits.growTo(trail.size(), lit_Undef);
+											// definitely a better way to do this, but works for now
+											int num_inserted = 0;
+											for(int i = 0; i < trail.size(); i++){
+												Lit l = trail[i];
+												int index = irand(random_seed, trail.size() - num_inserted);
+												int unused_slots = -1;
+												for(int j = 0; j < trail_lits.size(); j++){
+													if(trail_lits[j] == lit_Undef) // the spot in the randomized trail is not yet assigned
+														unused_slots++;
+													if(index == unused_slots){
+														trail_lits[j] = l;
+														break;
+													}
+												}
+												num_inserted++;
+											}
+											// this part is the same as case clause_type == 1
+											int s = 0;
+											while(fake_learnt.size() < embed_lsr_target_clause_size && s < trail_lits.size()){
+												if(level(var(trail_lits[s])) != 0)
+													fake_learnt.push(~trail_lits[s]);
+												s++;
+											}
+										}
+										else if(embed_lsr_clause_type == 1) // start from lowest level literals
+										{
+											int s = 0;
+											while(fake_learnt.size() < embed_lsr_target_clause_size && s < trail.size()){
+												if(level(var(trail[s])) != 0)
+													fake_learnt.push(~trail[s]);
+												s++;
+											}
+										}
+										else if(embed_lsr_clause_type == 2) // start from highest level literals
+										{
+											int s = trail.size() - 1;
+											while(fake_learnt.size() < embed_lsr_target_clause_size && s >= 0){
+												fake_learnt.push(~trail[s]);
+												s--;
+											}
+										}
+
+
+										/*
+										while(fake_learnt.size() < embed_lsr_target_clause_size && s >= 0){
+											int curr_level = level(var(trail[s]));
+	                						if(curr_level == 0)
+	                							break;
+	                						if(fake_learnt.size() == 0){
+												asserting_level = level(var(trail[s]));
+												fake_learnt.push(~trail[s]);
+	                						}
+	                						else if(curr_level != asserting_level){
+	                							fake_learnt.push(~trail[s]);
+	                						}
+	                						s--;
+										}
+										*/
+
+
+
+										assert(fake_learnt.size() > 1);
+										printClause(fake_learnt, true);
+										cancelUntil(0);
+
+										CRef cr = ca.alloc(fake_learnt, fake_learnt.size(), fake_learnt.size(), true);
+										learnts.push(cr);
+										attachClause(cr);
+										Clause& clause = ca[cr];
+										// want to keep all these clauses, so just set their lbd to 2
+										clause.activity() = 2;
+                					}
 								}
+
+								cancelUntil(0);
 								return l_Undef;
                 			}
                 		}
@@ -1832,15 +1922,20 @@ lbool Solver::solve_()
     int curr_restarts = 0;
     while (status == l_Undef){
 
-    	if(popsim_branching){
-    		if(popsim_remaining_failures <= 0){
-				printf("Increasing popsim limit %d\n", popsim_branching_limit);
-				setDecisionVar(popsim_branching_limit, true);
-				popsim_remaining_failures = popsim_branching_limit < 50 ? popsim_branching_limit : 50;
-				popsim_branching_limit++;
+    	if(popsim_branching || embed_lsr){
+    		if(focused_branching_remaining_failures <= 0){
+				if(popsim_branching){
+					printf("Increasing focused branching limit %d\n", focused_branching_failure_limit);
+					setDecisionVar(focused_branching_failure_limit, true);
+				}
+				focused_branching_remaining_failures = focused_branching_failure_limit < 50 ? focused_branching_failure_limit : 50;
+				focused_branching_failure_limit++;
+				//printf("Setting focused branching remaining failures %d\n", focused_branching_remaining_failures);
+
     		}
-    		popsim_failed = false;
     	}
+
+
     	double rest_base;
 		if(always_restart)
 			rest_base = 1;

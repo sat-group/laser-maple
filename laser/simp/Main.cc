@@ -201,8 +201,8 @@ int main(int argc, char** argv)
 
         // popsim experiments
         StringOption popsim_file("POPSIM","popsim-file", "var, popularity, similarity triples pairs, one based vars");
-        BoolOption   pop_bd_mode("POPSIM","pop-bd-mode","Iteratively expand potential backdoor, ordered by popularity.\n",false);
-        BoolOption   sim_bd_mode("POPSIM","sim-bd-mode","Iteratively expand potential backdoor, ordered by similarity.\n",false);
+        BoolOption   pop_bd_mode("POPSIM","pop-bd-mode","Iteratively expand potential backdoor, ordered by popularity.\n", false);
+        BoolOption   sim_bd_mode("POPSIM","sim-bd-mode","Iteratively expand potential backdoor, ordered by similarity.\n", false);
 
 
         parseOptions(argc, argv, true);

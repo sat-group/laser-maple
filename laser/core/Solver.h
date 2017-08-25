@@ -265,6 +265,11 @@ public:
     bool cmty_logging;
     bool backbone_logging;
 
+    // embedded lsr backdoors derived through failed branching
+    bool embed_lsr;
+    int embed_lsr_target_clause_size;
+    int embed_lsr_clause_type;
+
     vec<uint64_t> var_cmty;
     vec<uint64_t> cmty_size;
     vec<uint64_t> cmty_picks;
@@ -290,13 +295,40 @@ public:
 
     // popsim experiments
     bool popsim_branching;
-    bool popsim_failed;
-    int popsim_branching_limit;
-    int popsim_remaining_failures;
+    int focused_branching_failure_limit;
+    int focused_branching_remaining_failures;
     vec<double> popularity;
     vec<double> angle;
     vec<double> popsim_branching_order;
 
+    inline void printClause   (Clause& c){
+		vec<Lit> lits;
+		for(int i = 0; i < c.size(); i++)
+			lits.push(c[i]);
+		printClause(lits);
+	};
+
+    //outputs one-based
+	inline void printClause   (vec<Lit>& out_learnt, bool levels=true){
+		printf("Clause: ");
+		for(int i = 0; i < out_learnt.size(); i++){
+			if(levels)
+				printf("%s%d@%d ", sign(out_learnt[i])?"-":"", var(out_learnt[i]) + 1, level(var(out_learnt[i])));
+			else
+				printf("%s%d ", sign(out_learnt[i])?"-":"", var(out_learnt[i]) + 1);
+
+		}
+		printf("\n");
+	};
+
+    inline void printTrail    (int lev = -1){
+		printf("Trail: ");
+		for(int i = 0; i < trail.size(); i++){
+			if(lev < 0 || lev == level(var(trail[i])))
+				printf("%s%d@%d ", sign(trail[i])?"-":"", var(trail[i]), level(var(trail[i])));
+		}
+		printf("\n");
+	};
 
 protected:
 
