@@ -61,6 +61,8 @@ static DoubleOption  opt_reward_multiplier (_cat, "reward-multiplier", "Reward m
 #endif
 static BoolOption    opt_always_restart      (_cat, "always-restart",        "Restart after every conflict.", false);
 static BoolOption    opt_never_restart      (_cat, "never-restart",        "Restart never.", false);
+static IntOption     opt_uniform_restart     (_cat, "uniform-restart",      "Uniform k-restarts", -1, IntRange(-1, INT32_MAX));
+
 static BoolOption    opt_never_gc      (_cat, "never-gc",        "Never remove clauses.", false);
 
 // lsr computation types
@@ -122,6 +124,7 @@ Solver::Solver() :
     //
   , learntsize_factor((double)1/(double)3), learntsize_inc(1.1)
 
+  , uniform_restarts (opt_uniform_restart)
   , always_restart (opt_always_restart)
   , never_restart (opt_never_restart)
   , clause_and_conflict_side_lsr (opt_clause_and_conflict_side_lsr)
@@ -2028,6 +2031,8 @@ lbool Solver::solve_()
 			rest_base = 1;
 		else if(never_restart)
 			rest_base = -1;
+		else if(uniform_restarts > 0)
+			rest_base = uniform_restarts;
 		else
 			rest_base = (luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts)) * restart_first;
 		status = search(rest_base);

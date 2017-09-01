@@ -150,6 +150,7 @@ public:
     int       learntsize_adjust_start_confl;
     double    learntsize_adjust_inc;
 
+    int uniform_restarts;
     bool always_restart;
     bool never_restart;
     bool never_gc;
