@@ -114,7 +114,7 @@ public:
     // Mode of operation:
     //
     int       verbosity;
-#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB
+#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB || BRANCHING_HEURISTIC == SGDB
     double    step_size;
     double    step_size_dec;
     double    min_step_size;
@@ -122,6 +122,14 @@ public:
 #if BRANCHING_HEURISTIC == VSIDS
     double    var_decay;
 #endif
+#if BRANCHING_HEURISTIC == SGDB
+    double    regularization;
+    double    bias;
+    vec<Var> in_conflict;
+    vec<uint64_t> last_conflict;
+    vec<uint64_t> canceled;
+#endif
+
 #if ! LBD_BASED_CLAUSE_DELETION
     double    clause_decay;
 #endif
@@ -154,6 +162,13 @@ public:
     //
     uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
     uint64_t dec_vars, clauses_literals, learnts_literals, max_literals, tot_literals;
+
+#if BRANCHING_HEURISTIC == SGDB
+    uint64_t in_conflicts, sampleds;
+#endif
+#if LBD_BASED_CLAUSE_DELETION
+    uint64_t tot_lbds;
+#endif
 
     uint64_t lbd_calls;
     vec<uint64_t> lbd_seen;

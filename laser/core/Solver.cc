@@ -32,13 +32,16 @@ using namespace Minisat;
 
 static const char* _cat = "CORE";
 
-#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB
+#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB || BRANCHING_HEURISTIC == SGDB
 static DoubleOption  opt_step_size         (_cat, "step-size",   "Initial step size",                             0.40,     DoubleRange(0, false, 1, false));
 static DoubleOption  opt_step_size_dec     (_cat, "step-size-dec","Step size decrement",                          0.000001, DoubleRange(0, false, 1, false));
 static DoubleOption  opt_min_step_size     (_cat, "min-step-size","Minimal step size",                            0.06,     DoubleRange(0, false, 1, false));
 #endif
 #if BRANCHING_HEURISTIC == VSIDS
 static DoubleOption  opt_var_decay         (_cat, "var-decay",   "The variable activity decay factor",            0.95,     DoubleRange(0, false, 1, false));
+#endif
+#if BRANCHING_HEURISTIC == SGDB
+static DoubleOption  opt_regularization    (_cat, "regularization", "L2 Regularization", 0.95, DoubleRange(0, true, 1, true));
 #endif
 #if ! LBD_BASED_CLAUSE_DELETION
 static DoubleOption  opt_clause_decay      (_cat, "cla-decay",   "The clause activity decay factor",              0.999,    DoubleRange(0, false, 1, false));
@@ -90,13 +93,16 @@ Solver::Solver() :
     // Parameters (user settable):
     //
     verbosity        (0)
-#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB
+#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB || BRANCHING_HEURISTIC == SGDB
   , step_size        (opt_step_size)
   , step_size_dec    (opt_step_size_dec)
   , min_step_size    (opt_min_step_size)
 #endif
 #if BRANCHING_HEURISTIC == VSIDS
   , var_decay        (opt_var_decay)
+#endif
+#if BRANCHING_HEURISTIC == SGDB
+  , regularization   (opt_regularization)
 #endif
 #if ! LBD_BASED_CLAUSE_DELETION
   , clause_decay     (opt_clause_decay)
@@ -127,6 +133,9 @@ Solver::Solver() :
     // Statistics: (formerly in 'SolverStats')
     //
   , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0)
+#if BRANCHING_HEURISTIC == SGDB
+  , in_conflicts(0), sampleds(0)
+#endif
   , dec_vars(0), clauses_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
 
   , lbd_calls(0)
@@ -219,6 +228,10 @@ Solver::~Solver()
 	}
 }
 
+double sigmoid(double z) {
+    return 1.0 / (1.0 + exp(-z));
+}
+
 
 //=================================================================================================
 // Minor methods:
@@ -250,10 +263,10 @@ Var Solver::newVar(bool sign, bool dvar)
 #if ALMOST_CONFLICT
     almost_conflicted.push(0);
 #endif
-#if ANTI_EXPLORATION
+#if ANTI_EXPLORATION || BRANCHING_HEURISTIC == SGDB
     canceled.push(0);
 #endif
-#if BRANCHING_HEURISTIC == CHB
+#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == SGDB
     last_conflict.push(0);
 #endif
     total_actual_rewards.push(0);
@@ -426,6 +439,21 @@ Lit Solver::pickBranchLit()
                 age = conflicts - canceled[next];
             }
 #endif
+#if BRANCHING_HEURISTIC == SGDB
+			next = order_heap[0];
+			uint64_t age = conflicts - canceled[next];
+			while (age > 0 && value(next) == l_Undef) {
+				double decay = pow(regularization, age);
+				activity[next] *= decay;
+				if (order_heap.inHeap(next)) {
+					order_heap.increase(next);
+					order_heap.decrease(next);
+				}
+				canceled[next] = conflicts;
+				next = order_heap[0];
+				age = conflicts - canceled[next];
+			}
+#endif
             next = order_heap.removeMin();
         }
     if(next != var_Undef)
@@ -503,6 +531,9 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, vec<Lit>& lsr_conflict_si
                 last_conflict[var(q)] = conflicts;
 #elif BRANCHING_HEURISTIC == VSIDS
                 varBumpActivity(var(q));
+#elif BRANCHING_HEURISTIC == SGDB
+                in_conflict.push(var(q));
+                last_conflict[var(q)] = conflicts;
 #endif
                 conflicted[var(q)]++;
                 seen[var(q)] = 1;
@@ -1386,6 +1417,9 @@ lbool Solver::search(int nof_conflicts)
     int         backtrack_level;
     int         conflictC = 0;
     vec<Lit>    learnt_clause;
+#if BRANCHING_HEURISTIC == SGDB
+    vec<Var>    sampled;
+#endif
     starts++;
 
     for (;;){
@@ -1410,17 +1444,96 @@ lbool Solver::search(int nof_conflicts)
         if (confl != CRef_Undef){
             // CONFLICT
             conflicts++; conflictC++;
-#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB
+#if BRANCHING_HEURISTIC == CHB || BRANCHING_HEURISTIC == LRB || BRANCHING_HEURISTIC == SGDB
             if (step_size > min_step_size)
                 step_size -= step_size_dec;
 #endif
             if (decisionLevel() == 0) return l_False;
 
+#if BRANCHING_HEURISTIC == SGDB
+            in_conflict.clear();
+#endif
             learnt_clause.clear();
             vec<Lit> decision_clause;
             // analyze will now put the dependency lits from the conflict side in decision_clause
             analyze(confl, learnt_clause, decision_clause, backtrack_level);
+#if BRANCHING_HEURISTIC == SGDB
+            if (trail_lim.size() > 0) {
+                for (int k = 0; k < learnt_clause.size(); k++) {
+                    Var v = var(learnt_clause[k]);
+                    CRef rea = reason(v);
+                    if (rea != CRef_Undef) {
+                        Clause& reaC = ca[rea];
+                        for (int l = 0; l < reaC.size(); l++) {
+                            Lit n = reaC[l];
+                            Var nV = var(n);
+                            if (last_conflict[nV] != conflicts) {
+                                last_conflict[nV] = conflicts;
+                                in_conflict.push(nV);
+                            }
+                        }
+                    }
+                }
 
+                double conflict_class = bias;
+                double non_conflict_class = bias;
+                for (int i = 0; i < in_conflict.size(); i++) {
+                    Var v = in_conflict[i];
+                    uint64_t age = conflicts - canceled[v];
+                    if (age > 1) {
+                        double decay = pow(regularization, age - 1);
+                        activity[v] *= decay;
+                    }
+                    canceled[v] = conflicts;
+                    conflict_class += activity[v];
+                }
+                sampled.clear();
+                for (int i = 0; i < trail_lim.size() - 1; i++) {
+                    int start = trail_lim[i];
+                    int end = trail_lim[i+1];
+                    if (level(var(trail[start])) >= level(var(trail[end]))) {
+                        printf("fail %d %d\n", level(var(trail[start])), level(var(trail[end])));
+                        exit(1);
+                    }
+                    int t = start + irand(random_seed, end - start);
+                    Var v = var(trail[t]);
+                    if (canceled[v] != conflicts) {
+                        sampled.push(v);
+                        uint64_t age = conflicts - canceled[v];
+                        if (age > 1) {
+                            double decay = pow(regularization, age - 1);
+                            activity[v] *= decay;
+                        }
+                        canceled[v] = conflicts;
+                        non_conflict_class += activity[v];
+                    }
+                }
+                in_conflicts += in_conflict.size();
+                sampleds += sampled.size();
+
+                double conflict_error = sigmoid(conflict_class) - 1;
+                double non_conflict_error = sigmoid(non_conflict_class);
+
+                bias = bias * regularization - step_size * (conflict_error + non_conflict_error);
+
+                for (int i = 0; i < in_conflict.size(); i++) {
+                    Var v = in_conflict[i];
+                    activity[v] = activity[v] * regularization - step_size * conflict_error;
+                    if (order_heap.inHeap(v)) {
+                        order_heap.increase(v);
+                        order_heap.decrease(v);
+                    }
+                }
+                for (int i = 0; i < sampled.size(); i++) {
+                    Var v = sampled[i];
+                    activity[v] = activity[v] * regularization - step_size * non_conflict_error;
+                    if (order_heap.inHeap(v)) {
+                        order_heap.increase(v);
+                        order_heap.decrease(v);
+                    }
+                }
+            }
+#endif
             if(cmty_logging){
             	int s = learnt_clause.size();
             	for(int i = 0; i < s; i++){
