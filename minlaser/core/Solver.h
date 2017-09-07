@@ -460,7 +460,7 @@ public:
 		for(unsigned i = 0; i < s->mLearnts->size(); i++){
 			std::vector<Lit> v = (*(s->mLearnts))[i];
 			for(unsigned j = 0; j < v.size(); j++){
-				printf("%s%d ", sign(v[j])?"-":"", var(v[j]));
+				printf("%s%d ", sign(v[j])?"-":"", var(v[j]) + 1);
 			}
 			printf("\n");
 		}

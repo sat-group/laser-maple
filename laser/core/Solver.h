@@ -311,6 +311,7 @@ public:
 
     // popsim experiments
     bool popsim_branching;
+    int focused_branching_hard_limit;
     int focused_branching_failure_limit;
     int focused_branching_remaining_failures;
     vec<double> popularity;
@@ -337,11 +338,11 @@ public:
 		printf("\n");
 	};
 
-    inline void printTrail    (int lev = -1){
+    inline void printTrail(int lev = -1){
 		printf("Trail: ");
 		for(int i = 0; i < trail.size(); i++){
 			if(lev < 0 || lev == level(var(trail[i])))
-				printf("%s%d@%d ", sign(trail[i])?"-":"", var(trail[i]), level(var(trail[i])));
+				printf("%s%d@%d ", sign(trail[i])?"-":"", var(trail[i]) + 1, level(var(trail[i])));
 		}
 		printf("\n");
 	};

@@ -203,6 +203,7 @@ int main(int argc, char** argv)
         StringOption popsim_file("POPSIM","popsim-file", "var, popularity, similarity triples pairs, one based vars");
         BoolOption   pop_bd_mode("POPSIM","pop-bd-mode","Iteratively expand potential backdoor, ordered by popularity.\n", false);
         BoolOption   sim_bd_mode("POPSIM","sim-bd-mode","Iteratively expand potential backdoor, ordered by similarity.\n", false);
+        IntOption    focused_branching_hard_limit("MAIN", "focused-hard-lim","How many failures before increasing the backdoor range.\n", 50, IntRange(0, INT32_MAX));
 
 
         parseOptions(argc, argv, true);
@@ -277,6 +278,7 @@ int main(int argc, char** argv)
 			}
 			if(pop_bd_mode || sim_bd_mode){
 				S.popsim_branching = true;
+				S.focused_branching_hard_limit = focused_branching_hard_limit;
 			}
 		}
 

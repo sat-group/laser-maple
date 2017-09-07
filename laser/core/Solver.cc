@@ -1427,6 +1427,8 @@ lbool Solver::search(int nof_conflicts)
 
     for (;;){
         CRef confl = propagate();
+        //printTrail();
+
 
 #if BRANCHING_HEURISTIC == CHB
         double multiplier = confl == CRef_Undef ? reward_multiplier : 1.0;
@@ -1762,7 +1764,10 @@ lbool Solver::search(int nof_conflicts)
 
                 next = pickBranchLit();
                 //printf("var %d\n", var(next));
-                //printf("picked var: %d\n", var(next));
+                //if(next == lit_Undef)
+                //    printf("picked lit: undef\n");
+                //else
+		// 	printf("picked lit: %s%d\n", sign(next)?"-":"", var(next) + 1);
                 if(structure_logging){
                 	if(cmty_logging && var(next) >= 0){
                 		int cmty = var_cmty[var(next)];
@@ -1893,6 +1898,7 @@ lbool Solver::search(int nof_conflicts)
 #if BRANCHING_HEURISTIC == CHB
             action = trail.size();
 #endif
+
             uncheckedEnqueue(next);
         }
     }
@@ -2018,7 +2024,7 @@ lbool Solver::solve_()
 					printf("Increasing focused branching limit %d\n", focused_branching_failure_limit);
 					setDecisionVar(focused_branching_failure_limit, true);
 				}
-				focused_branching_remaining_failures = focused_branching_failure_limit < 50 ? focused_branching_failure_limit : 50;
+				focused_branching_remaining_failures = focused_branching_hard_limit; // focused_branching_failure_limit < 50 ? focused_branching_failure_limit : 50;
 				focused_branching_failure_limit++;
 				//printf("Setting focused branching remaining failures %d\n", focused_branching_remaining_failures);
 
