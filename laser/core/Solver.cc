@@ -1074,16 +1074,14 @@ bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflic
 {
     analyze_stack.clear(); analyze_stack.push(p);
     int top = analyze_toclear.size();
+    vec<Lit> temp;
     while (analyze_stack.size() > 0){
         assert(reason(var(analyze_stack.last())) != CRef_Undef);
         Clause& c = ca[reason(var(analyze_stack.last()))]; analyze_stack.pop();
         // lsr -- grab the vars that any learnt depends upon
 		if(c.learnt()){
 			for (int i = c.size(); i < c.rsize(); i++){
-			  if (!lsr_seen[var(c[i])]){
-				lsr_seen[var(c[i])] = 1;
-				lsr_conflict_side.push(c[i]);
-			  }
+			  temp.push(c[i]);
 			}
 		}
         for (int i = 1; i < c.size(); i++){
@@ -1101,6 +1099,13 @@ bool Solver::litRedundant(Lit p, uint32_t abstract_levels, vec<Lit>& lsr_conflic
                 }
             }
         }
+    }
+    for (int i = 0; i < temp.size(); ++i)
+    {
+    	if (!lsr_seen[var(temp[i])]){
+			lsr_seen[var(temp[i])] = 1;
+			lsr_conflict_side.push(temp[i]);
+    	}
     }
 
     return true;
